@@ -49,24 +49,30 @@ pub fn depthOf(comptime N: type) usize {
     return Depth(N).of;
 }
 
+// The types of the nodes right inside a node of type `N`: a list has one for
+// all of its rows.
+fn ChildNodes(comptime N: type) []const type {
+    const Inside = @FieldType(N, "children");
+
+    if (Inside == void) return &.{};
+    if (@hasField(Inside, "items")) {
+        return &.{
+            @typeInfo(@FieldType(Inside, "items"))
+                .pointer
+                .child,
+        };
+    }
+    return @typeInfo(Inside).@"struct".field_types;
+}
+
 // A large tree would exceed the branch quota when counted in one evaluation,
 // so every type of node gets a declaration of its own, which counts apart.
 fn Depth(comptime N: type) type {
     return struct {
         const of: usize = 1 + inside: {
-            const Inside = @FieldType(N, "children");
-            if (Inside == void) break :inside 0;
-
-            if (@hasField(Inside, "items")) {
-                break :inside Depth(
-                    @typeInfo(@FieldType(Inside, "items"))
-                        .pointer
-                        .child,
-                ).of;
-            }
-
             var deepest: usize = 0;
-            for (@typeInfo(Inside).@"struct".field_types) |Child| {
+
+            for (ChildNodes(N)) |Child| {
                 deepest = @max(deepest, Depth(Child).of);
             }
             break :inside deepest;
@@ -188,13 +194,7 @@ pub fn holds(comptime N: type, comptime matches: fn (comptime type) bool) bool {
 fn Holding(comptime N: type, comptime matches: fn (comptime type) bool) type {
     return struct {
         const any = matches(@FieldType(N, "widget")) or inside: {
-            const Inside = @FieldType(N, "children");
-            if (Inside == void) break :inside false;
-            if (@hasField(Inside, "items")) {
-                const Row = @typeInfo(@FieldType(Inside, "items")).pointer.child;
-                break :inside Holding(Row, matches).any;
-            }
-            for (@typeInfo(Inside).@"struct".field_types) |Child| {
+            for (ChildNodes(N)) |Child| {
                 if (Holding(Child, matches).any) break :inside true;
             }
             break :inside false;

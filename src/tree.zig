@@ -59,10 +59,12 @@ pub fn mount(
     owners: anytype,
 ) void {
     const View = @TypeOf(value);
-    if (comptime isShow(View)) {
+
+    if (comptime isShow(View))
         return mount(node, resolve(value, state, owners), state, owners);
-    }
-    if (comptime node_zig.isBare(View)) return mount(node, leaf(value), state, owners);
+
+    if (comptime node_zig.isBare(View))
+        return mount(node, leaf(value), state, owners);
 
     state.next_id += 1;
     node.id = state.next_id;
@@ -136,10 +138,26 @@ fn apply(
     comptime origin: Origin,
 ) void {
     const View = @TypeOf(value);
+
     if (comptime isShow(View)) {
-        return apply(node, resolve(value, state, owners), state, owners, .function);
+        return apply(
+            node,
+            resolve(value, state, owners),
+            state,
+            owners,
+            .function,
+        );
     }
-    if (comptime node_zig.isBare(View)) return apply(node, leaf(value), state, owners, origin);
+
+    if (comptime node_zig.isBare(View)) {
+        return apply(
+            node,
+            leaf(value),
+            state,
+            owners,
+            origin,
+        );
+    }
 
     if (comptime isComponent(View)) {
         if (origin == .view) return;
