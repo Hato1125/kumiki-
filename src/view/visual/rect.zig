@@ -1,10 +1,10 @@
 const Corners = @import("gfx").Corners;
-const types = @import("../types.zig");
+const types = @import("types");
 const Color = types.Color;
 const Constraint = types.Constraint;
 const Extent = types.Extent;
-const mod = @import("../mod.zig");
-const Painter = @import("../paint.zig").Painter;
+const mod = @import("scene").mod;
+const Painter = @import("scene").paint.Painter;
 
 /// The config of a rectangle that fills the space offered. Its settings are
 /// methods of the container.

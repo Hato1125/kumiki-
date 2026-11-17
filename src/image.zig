@@ -3,7 +3,7 @@
 const std = @import("std");
 const gfx = @import("gfx");
 
-const types = @import("types.zig");
+const types = @import("types");
 const Extent = types.Extent;
 
 const gpa = std.heap.c_allocator;
@@ -113,8 +113,14 @@ extern fn kumiki_decode_image(data: [*]const u8, length: usize, width: *u32, hei
 fn decode(file: []const u8) !Loaded {
     var width: u32 = 0;
     var height: u32 = 0;
-    const pixels = kumiki_decode_image(file.ptr, file.len, &width, &height) orelse
-        return error.ImageLoad;
+
+    const pixels = kumiki_decode_image(
+        file.ptr,
+        file.len,
+        &width,
+        &height,
+    ) orelse return error.ImageLoad;
+
     return .{
         .pixels = pixels[0 .. @as(usize, width) * height * 4],
         .width = width,

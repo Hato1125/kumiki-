@@ -1,10 +1,10 @@
-const types = @import("../types.zig");
+const types = @import("types");
 const Constraint = types.Constraint;
 const Extent = types.Extent;
 const Point = types.Point;
-const pass = @import("../layout.zig");
-const mod = @import("../mod.zig");
-const ReturnOf = @import("../node.zig").ReturnOf;
+const pass = @import("scene").layout;
+const mod = @import("scene").mod;
+const ReturnOf = @import("scene").node.ReturnOf;
 
 /// The config of a `select`: shows the child that stands for the value of the
 /// enum that `cond_fn` returns, in the order of its fields. All children are

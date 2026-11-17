@@ -4,7 +4,7 @@
 const std = @import("std");
 const gfx = @import("gfx");
 
-const types = @import("types.zig");
+const types = @import("types");
 const Extent = types.Extent;
 
 const gpa = std.heap.c_allocator;

@@ -15,7 +15,7 @@ const isContainer = node_zig.isContainer;
 const isList = node_zig.isList;
 const isShow = node_zig.isShow;
 const provides = node_zig.provides;
-const same = @import("anime.zig").same;
+const same = @import("anime").same;
 
 fn isAnimated(comptime View: type) bool {
     return isContainer(View) and @hasField(@FieldType(View, "config"), "tween");

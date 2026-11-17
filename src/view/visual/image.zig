@@ -2,12 +2,12 @@ const std = @import("std");
 
 const gfx = @import("gfx");
 
-const Image = @import("../image.zig").Image;
-const types = @import("../types.zig");
+const Image = @import("image").Image;
+const types = @import("types");
 const Constraint = types.Constraint;
 const Extent = types.Extent;
-const mod = @import("../mod.zig");
-const Painter = @import("../paint.zig").Painter;
+const mod = @import("scene").mod;
+const Painter = @import("scene").paint.Painter;
 
 /// How an image goes into a box of another shape: stretched over it, as
 /// large as fits inside, or as small as covers it with the rest cut off.

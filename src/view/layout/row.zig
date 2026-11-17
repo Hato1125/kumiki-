@@ -1,4 +1,4 @@
-const mod = @import("../mod.zig");
+const mod = @import("scene").mod;
 const Flex = @import("flex.zig").Flex;
 
 pub fn row(children: anytype) mod.Container(mod.Runtime(@TypeOf(children)), Flex(.horizontal)) {

@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const invoke = @import("call.zig").invoke;
-const types = @import("types.zig");
+const types = @import("types");
 const Extent = types.Extent;
 const Point = types.Point;
 const input = @import("input.zig");
@@ -13,7 +13,7 @@ const painter = @import("paint.zig");
 const paint = painter.paint;
 const popup = @import("popup.zig");
 const Tasks = @import("task.zig").Tasks;
-const text_zig = @import("text.zig");
+const text_zig = @import("text");
 const tree = @import("tree.zig");
 
 /// A tree of views with its focus and pointer. `Impl` hands over the events

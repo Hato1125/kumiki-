@@ -5,7 +5,7 @@
 
 const std = @import("std");
 
-const anim = @import("anime.zig");
+const anim = @import("anime");
 const invoke = @import("call.zig").invoke;
 const Target = @import("paint.zig").Target;
 const input = @import("input.zig");
@@ -16,7 +16,7 @@ const each = node_zig.each;
 const isPopup = node_zig.isPopup;
 const painter = @import("paint.zig");
 const markTargets = @import("tree.zig").markTargets;
-const types = @import("types.zig");
+const types = @import("types");
 const Alignment = types.Alignment;
 const Constraint = types.Constraint;
 const Extent = types.Extent;

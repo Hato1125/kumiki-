@@ -1,10 +1,10 @@
 const std = @import("std");
 
-const types = @import("../types.zig");
+const types = @import("types");
 const Constraint = types.Constraint;
 const Extent = types.Extent;
 const Point = types.Point;
-const pass = @import("../layout.zig");
+const pass = @import("scene").layout;
 
 pub const Axis = enum { horizontal, vertical };
 pub const MainAlign = enum { start, center, end, between };

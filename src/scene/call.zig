@@ -1,7 +1,7 @@
 const std = @import("std");
 
 const Context = @import("cx.zig");
-const Constraint = @import("types.zig").Constraint;
+const Constraint = @import("types").Constraint;
 const node_zig = @import("node.zig");
 const ReturnOf = node_zig.ReturnOf;
 const State = node_zig.State;

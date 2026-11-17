@@ -6,7 +6,7 @@ const std = @import("std");
 const node_zig = @import("node.zig");
 const contains = node_zig.contains;
 const keyOf = @import("task.zig").keyOf;
-const types = @import("types.zig");
+const types = @import("types");
 
 const Context = @This();
 

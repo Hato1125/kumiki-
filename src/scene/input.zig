@@ -1,6 +1,6 @@
 const builtin = @import("builtin");
 
-const types = @import("types.zig");
+const types = @import("types");
 const Point = types.Point;
 const call = @import("call.zig");
 const invoke = call.invoke;

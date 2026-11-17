@@ -1,12 +1,12 @@
 const std = @import("std");
 
-const types = @import("../types.zig");
+const types = @import("types");
 const Constraint = types.Constraint;
 const Extent = types.Extent;
 const Point = types.Point;
-const pass = @import("../layout.zig");
-const mod = @import("../mod.zig");
-const ReturnOf = @import("../node.zig").ReturnOf;
+const pass = @import("scene").layout;
+const mod = @import("scene").mod;
+const ReturnOf = @import("scene").node.ReturnOf;
 
 /// The config of a list, which stacks one row per element of the slice that
 /// `source_fn` returns. Rows follow the `id` field of the elements when they

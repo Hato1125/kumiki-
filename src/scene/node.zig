@@ -2,7 +2,7 @@ const std = @import("std");
 
 const Container = @import("mod.zig").Container;
 const Tasks = @import("task.zig").Tasks;
-const types = @import("types.zig");
+const types = @import("types");
 
 /// Counts up from 1. 0 stands for no node.
 pub const NodeId = u32;

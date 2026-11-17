@@ -4,9 +4,9 @@
 
 const std = @import("std");
 
-const anim = @import("anime.zig");
+const anim = @import("anime");
 const Corners = @import("gfx").Corners;
-const types = @import("types.zig");
+const types = @import("types");
 const Alignment = types.Alignment;
 const Color = types.Color;
 const Constraint = types.Constraint;

@@ -1,4 +1,4 @@
-const types = @import("types.zig");
+const types = @import("types");
 const Constraint = types.Constraint;
 const Extent = types.Extent;
 const Point = types.Point;

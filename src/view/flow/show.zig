@@ -1,4 +1,4 @@
-const mod = @import("../mod.zig");
+const mod = @import("scene").mod;
 
 /// The config of a `show`, which stands for the view that `f` returns and is
 /// replaced by it when the tree is built.

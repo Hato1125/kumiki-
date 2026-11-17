@@ -1,10 +1,10 @@
-const types = @import("../types.zig");
+const types = @import("types");
 const Alignment = types.Alignment;
 const Constraint = types.Constraint;
 const Extent = types.Extent;
 const Point = types.Point;
-const pass = @import("../layout.zig");
-const mod = @import("../mod.zig");
+const pass = @import("scene").layout;
+const mod = @import("scene").mod;
 
 /// The config of a stack: children lie on top of each other, later ones in
 /// front, and the stack is as large as its largest child.

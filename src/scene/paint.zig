@@ -1,7 +1,7 @@
 const std = @import("std");
 const gfx = @import("gfx");
 
-const types = @import("types.zig");
+const types = @import("types");
 const node_zig = @import("node.zig");
 const has = node_zig.has;
 

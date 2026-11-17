@@ -1,9 +1,9 @@
-const types = @import("../types.zig");
+const types = @import("types");
 const Constraint = types.Constraint;
 const Extent = types.Extent;
 const Point = types.Point;
-const pass = @import("../layout.zig");
-const mod = @import("../mod.zig");
+const pass = @import("scene").layout;
+const mod = @import("scene").mod;
 
 /// The config of a `when`: shows the first child while `cond_fn` returns true
 /// and the second otherwise. Both are kept, so switching back and forth keeps
