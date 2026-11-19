@@ -2,9 +2,9 @@ const builtin = @import("builtin");
 
 const types = @import("types");
 const Point = types.Point;
-const call = @import("call.zig");
+const call = @import("../base/call.zig");
 const invoke = call.invoke;
-const node_zig = @import("node.zig");
+const node_zig = @import("../base/node.zig");
 const NodeId = node_zig.NodeId;
 const State = node_zig.State;
 const contains = node_zig.contains;
@@ -13,8 +13,8 @@ const isFocusable = node_zig.isFocusable;
 const has = node_zig.has;
 const handles = node_zig.handles;
 const offsetOf = node_zig.offsetOf;
-const task_zig = @import("task.zig");
-const markTargets = @import("tree.zig").markTargets;
+const task_zig = @import("../base/task.zig");
+const markTargets = call.markTargets;
 
 /// The buttons, keys and modifier bits have the values of SDL3.
 pub const MouseButton = enum(u8) { left = 1, middle, right, x1, x2, _ };

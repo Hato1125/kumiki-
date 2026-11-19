@@ -13,11 +13,11 @@ const Constraint = types.Constraint;
 const Extent = types.Extent;
 const Point = types.Point;
 const Size = types.Size;
-const pass = @import("layout.zig");
-const HandlerKind = @import("node.zig").HandlerKind;
-const Resolved = @import("node.zig").Resolved;
-const Painter = @import("paint.zig").Painter;
-const popup_zig = @import("popup.zig");
+const pass = @import("pass/layout.zig");
+const HandlerKind = @import("base/node.zig").HandlerKind;
+const Resolved = @import("base/node.zig").Resolved;
+const Painter = @import("pass/paint.zig").Painter;
+const popup_zig = @import("pass/popup.zig");
 
 const mod = @This();
 

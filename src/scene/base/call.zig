@@ -5,7 +5,8 @@ const Constraint = @import("types").Constraint;
 const node_zig = @import("node.zig");
 const ReturnOf = node_zig.ReturnOf;
 const State = node_zig.State;
-const tree = @import("tree.zig");
+const each = node_zig.each;
+const isComponent = node_zig.isComponent;
 
 /// Where a value lives among the owners: in a field of an owner, as what the
 /// owner provides, or as the owner itself.
@@ -119,7 +120,7 @@ fn bind(comptime P: type, owners: anytype, state: *const State) P {
                 var outer: Outer(Owners) = undefined;
                 inline for (0..outer.len) |i| outer[i] = inner.*[i];
                 invoke(P.callee, outer, shared, {});
-                tree.markTargets(P.callee, outer);
+                markTargets(P.callee, outer);
             }
         }.run,
     };
@@ -190,4 +191,24 @@ pub fn invoke(
         args[i] = argument(P, &owners, state, event);
     }
     return @call(.auto, f, args);
+}
+
+/// A component received as a mutable pointer may have been changed, so it and
+/// everything inside it are built again. The same goes for the component
+/// sharing a field received as a mutable pointer. A pointer that no owner
+/// fills in is the event, such as the result of a background function.
+pub fn markTargets(comptime f: anytype, owners: anytype) void {
+    inline for (@typeInfo(@TypeOf(f)).@"fn".param_types) |param_type| {
+        const P = param_type.?;
+        if (comptime @typeInfo(P) == .pointer and !@typeInfo(P).pointer.attrs.@"const") {
+            if (comptime find(@TypeOf(owners), P)) |from| {
+                markAll(owners[from.owner]);
+            }
+        }
+    }
+}
+
+pub fn markAll(node: anytype) void {
+    if (comptime isComponent(@TypeOf(node.widget))) node.dirty = true;
+    _ = each(node, .all, markAll, .{});
 }

@@ -1,9 +1,9 @@
-pub const call = @import("call.zig");
-pub const Context = @import("cx.zig");
-pub const input = @import("input.zig");
-pub const layout = @import("layout.zig");
+pub const call = @import("base/call.zig");
+pub const Context = @import("base/cx.zig");
+pub const input = @import("pass/input.zig");
+pub const layout = @import("pass/layout.zig");
 pub const mod = @import("mod.zig");
-pub const node = @import("node.zig");
-pub const paint = @import("paint.zig");
-pub const popup = @import("popup.zig");
+pub const node = @import("base/node.zig");
+pub const paint = @import("pass/paint.zig");
+pub const popup = @import("pass/popup.zig");
 pub const Scene = @import("scene.zig").Scene;

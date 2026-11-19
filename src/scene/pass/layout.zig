@@ -2,7 +2,7 @@ const types = @import("types");
 const Constraint = types.Constraint;
 const Extent = types.Extent;
 const Point = types.Point;
-const node_zig = @import("node.zig");
+const node_zig = @import("../base/node.zig");
 const each = node_zig.each;
 const has = node_zig.has;
 

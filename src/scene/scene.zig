@@ -1,20 +1,21 @@
 const std = @import("std");
 
-const invoke = @import("call.zig").invoke;
+const call = @import("base/call.zig");
+const invoke = call.invoke;
 const types = @import("types");
 const Extent = types.Extent;
 const Point = types.Point;
-const input = @import("input.zig");
+const input = @import("pass/input.zig");
 const keys = input.keys;
-const pass = @import("layout.zig");
-const node_zig = @import("node.zig");
+const pass = @import("pass/layout.zig");
+const node_zig = @import("base/node.zig");
 const NodeId = node_zig.NodeId;
-const painter = @import("paint.zig");
+const painter = @import("pass/paint.zig");
 const paint = painter.paint;
-const popup = @import("popup.zig");
-const Tasks = @import("task.zig").Tasks;
+const popup = @import("pass/popup.zig");
+const Tasks = @import("base/task.zig").Tasks;
 const text_zig = @import("text");
-const tree = @import("tree.zig");
+const tree = @import("pass/tree.zig");
 
 /// A tree of views with its focus and pointer. `Impl` hands over the events
 /// and receives the drawing: `next(wait)` returns the next event or null, and
@@ -41,18 +42,23 @@ const tree = @import("tree.zig");
 /// call.zig, and the components it receives as mutable pointers are built
 /// again, so that it can bring up a view that asks first.
 pub fn Scene(comptime Impl: type, comptime Root: type) type {
-    if (!node_zig.isComponent(Root)) {
+    if (!node_zig.isComponent(Root))
         @compileError("the root must be a component with a view");
-    }
+
     inline for (.{
-        "Options", "init", "deinit", "next",  "size", "now",
-        "begin",   "end",  "wake",   "input", "copy", "paste",
-    }) |name| {
-        if (!@hasDecl(Impl, name)) {
-            @compileError(@typeName(Impl) ++
-                " is no implementation: it lacks " ++ name);
-        }
-    }
+        "Options",
+        "init",
+        "deinit",
+        "next",
+        "size",
+        "now",
+        "begin",
+        "end",
+        "wake",
+        "input",
+        "copy",
+        "paste",
+    }) |name| if (!@hasDecl(Impl, name)) @compileError(@typeName(Impl) ++ " is no implementation: it lacks " ++ name);
 
     return struct {
         impl: Impl,
@@ -452,7 +458,7 @@ pub fn Scene(comptime Impl: type, comptime Root: type) type {
             }
             const owners = .{&s.root};
             if (invoke(Root.closing, owners, &s.state, {})) return true;
-            tree.markTargets(Root.closing, owners);
+            call.markTargets(Root.closing, owners);
             s.pending = true;
             return false;
         }

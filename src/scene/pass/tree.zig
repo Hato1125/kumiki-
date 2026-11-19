@@ -1,9 +1,8 @@
 const std = @import("std");
 
-const call = @import("call.zig");
+const call = @import("../base/call.zig");
 const invoke = call.invoke;
-const leaf = @import("mod.zig").leaf;
-const node_zig = @import("node.zig");
+const node_zig = @import("../base/node.zig");
 const pass = @import("layout.zig");
 const Provided = node_zig.Provided;
 const Resolved = node_zig.Resolved;
@@ -64,7 +63,7 @@ pub fn mount(
         return mount(node, resolve(value, state, owners), state, owners);
 
     if (comptime node_zig.isBare(View))
-        return mount(node, leaf(value), state, owners);
+        return mount(node, node_zig.leaf(value), state, owners);
 
     state.next_id += 1;
     node.id = state.next_id;
@@ -152,7 +151,7 @@ fn apply(
     if (comptime node_zig.isBare(View)) {
         return apply(
             node,
-            leaf(value),
+            node_zig.leaf(value),
             state,
             owners,
             origin,
@@ -218,7 +217,7 @@ pub fn rebuild(node: anytype, state: *State, owners: anytype) void {
             if (comptime provides(Widget)) {
                 const next = provided(Widget, inner, state);
                 if (!same(Provided(Widget), next, node.given)) {
-                    markAll(&node.children[0]);
+                    call.markAll(&node.children[0]);
                 }
                 node.given = next;
             }
@@ -270,11 +269,6 @@ pub fn markResized(node: anytype, marked: *bool) void {
     _ = each(node, .all, markResized, .{marked});
 }
 
-pub fn markAll(node: anytype) void {
-    if (comptime isComponent(@TypeOf(node.widget))) node.dirty = true;
-    _ = each(node, .all, markAll, .{});
-}
-
 /// Marks the components that entered or left the path.
 pub fn markChanged(
     node: anytype,
@@ -288,21 +282,6 @@ pub fn markChanged(
         if (was != is) node.dirty = true;
     }
     _ = each(node, .all, markChanged, .{ before, after });
-}
-
-/// A component received as a mutable pointer may have been changed, so it and
-/// everything inside it are built again. The same goes for the component
-/// sharing a field received as a mutable pointer. A pointer that no owner
-/// fills in is the event, such as the result of a background function.
-pub fn markTargets(comptime f: anytype, owners: anytype) void {
-    inline for (@typeInfo(@TypeOf(f)).@"fn".param_types) |param_type| {
-        const P = param_type.?;
-        if (comptime @typeInfo(P) == .pointer and !@typeInfo(P).pointer.attrs.@"const") {
-            if (comptime call.find(@TypeOf(owners), P)) |from| {
-                markAll(owners[from.owner]);
-            }
-        }
-    }
 }
 
 fn syncList(node: anytype, state: *State, owners: anytype) void {

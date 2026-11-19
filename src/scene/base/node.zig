@@ -1,6 +1,5 @@
 const std = @import("std");
 
-const Container = @import("mod.zig").Container;
 const Tasks = @import("task.zig").Tasks;
 const types = @import("types");
 
@@ -153,10 +152,20 @@ pub fn isBare(comptime T: type) bool {
     return @typeInfo(T) == .@"struct" and !isComponent(T) and !isContainer(T);
 }
 
+/// The container of a leaf with a bare struct as its config. It has none of
+/// the modifiers of mod.Container, because the tree only reads its fields.
+pub fn Leaf(comptime Config: type) type {
+    return struct { children: void, config: Config };
+}
+
+pub fn leaf(config: anytype) Leaf(@TypeOf(config)) {
+    return .{ .children = {}, .config = config };
+}
+
 /// The view that a value stands for: a bare struct is given the container of
 /// a leaf.
 pub fn Normalized(comptime View: type) type {
-    return if (isBare(View)) Container(void, View) else View;
+    return if (isBare(View)) Leaf(View) else View;
 }
 
 pub const HandlerKind = enum {
