@@ -228,8 +228,8 @@ pub fn hit(node: anytype, at: Point, path: anytype) bool {
 }
 
 pub const Nearest = struct {
-    tap: NodeId = 0,
-    focusable: NodeId = 0,
+    tap: ?NodeId = null,
+    focusable: ?NodeId = null,
 };
 
 /// Finds the nearest tap and the nearest focusable node among `target` and
@@ -240,10 +240,10 @@ pub fn nearest(node: anytype, target: NodeId, found: *Nearest) bool {
     }
     const Widget = @TypeOf(node.widget);
     if (comptime handles(Widget, .tap)) {
-        if (found.tap == 0) found.tap = node.id;
+        if (found.tap == null) found.tap = node.id;
     }
     if (comptime isFocusable(Widget)) {
-        if (found.focusable == 0) found.focusable = node.id;
+        if (found.focusable == null) found.focusable = node.id;
     }
     return true;
 }
@@ -251,29 +251,29 @@ pub fn nearest(node: anytype, target: NodeId, found: *Nearest) bool {
 /// Records the focusable nodes around `current` while walking the tree in
 /// order.
 pub const FocusWalk = struct {
-    current: NodeId,
+    current: ?NodeId,
     seen: bool = false,
-    first: NodeId = 0,
-    last: NodeId = 0,
-    before: NodeId = 0,
-    after: NodeId = 0,
+    first: ?NodeId = null,
+    last: ?NodeId = null,
+    before: ?NodeId = null,
+    after: ?NodeId = null,
 
     fn visit(walk: *FocusWalk, id: NodeId) void {
-        if (walk.first == 0) walk.first = id;
+        if (walk.first == null) walk.first = id;
         walk.last = id;
         if (id == walk.current) {
             walk.seen = true;
         } else if (!walk.seen) {
             walk.before = id;
-        } else if (walk.after == 0) {
+        } else if (walk.after == null) {
             walk.after = id;
         }
     }
 
     /// Wraps around at both ends.
-    pub fn result(walk: FocusWalk, backward: bool) NodeId {
-        if (backward) return if (walk.before != 0) walk.before else walk.last;
-        return if (walk.after != 0) walk.after else walk.first;
+    pub fn result(walk: FocusWalk, backward: bool) ?NodeId {
+        if (backward) return walk.before orelse walk.last;
+        return walk.after orelse walk.first;
     }
 };
 
@@ -316,7 +316,7 @@ fn boundsOf(node: anytype) types.Bounds {
 /// The node that takes typed text and where an input method shows what it
 /// offers for it. `area` is null when the node takes none at the moment.
 pub const Typing = struct {
-    target: NodeId = 0,
+    target: ?NodeId = null,
     area: ?types.Bounds = null,
 };
 
@@ -329,7 +329,7 @@ pub fn typingArea(node: anytype, target: NodeId, found: *Typing) bool {
         return false;
     }
     if (comptime handles(@TypeOf(node.widget), .input)) {
-        if (found.target == 0) {
+        if (found.target == null) {
             found.target = node.id;
             found.area = boundsOf(node);
             _ = each(node, .shown, caretIn, .{&found.area});
@@ -426,13 +426,13 @@ pub fn bubble(
     offer: Offer,
     owners: anytype,
     state: *const State,
-    by: *NodeId,
+    by: *?NodeId,
 ) bool {
     const inner = if (comptime node_zig.isComponent(@TypeOf(node.widget))) owners ++ .{node} else owners;
     if (node.id != target and !each(node, .shown, bubble, .{ target, offer, inner, state, by })) {
         return false;
     }
-    if (by.* == 0 and handle(node, offer, owners, state)) by.* = node.id;
+    if (by.* == null and handle(node, offer, owners, state)) by.* = node.id;
     return true;
 }
 
@@ -453,12 +453,12 @@ pub fn shortcut(
     press: KeyPress,
     owners: anytype,
     state: *const State,
-    by: *NodeId,
+    by: *?NodeId,
 ) void {
     if (comptime !binds(@TypeOf(node.*))) return;
     const offer: Offer = .{ .shortcut = press };
     if (state.focus.len != 0) _ = bubble(node, state.focus[0], offer, owners, state, by);
-    if (by.* == 0) _ = sweep(node, offer, owners, state, by);
+    if (by.* == null) _ = sweep(node, offer, owners, state, by);
 }
 
 fn sweep(
@@ -466,7 +466,7 @@ fn sweep(
     offer: Offer,
     owners: anytype,
     state: *const State,
-    by: *NodeId,
+    by: *?NodeId,
 ) bool {
     if (comptime !binds(@TypeOf(node.*))) return false;
     const inner = if (comptime node_zig.isComponent(@TypeOf(node.widget))) owners ++ .{node} else owners;

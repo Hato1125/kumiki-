@@ -3,7 +3,6 @@ const std = @import("std");
 const Tasks = @import("task.zig").Tasks;
 const types = @import("types");
 
-/// Counts up from 1. 0 stands for no node.
 pub const NodeId = u32;
 
 /// A node and its ancestors, the node itself first, in a tree that is `depth`
@@ -19,8 +18,8 @@ pub fn Path(comptime depth: usize) type {
             return path.ids[0..path.len];
         }
 
-        pub fn id(path: *const Self) NodeId {
-            return if (path.len == 0) 0 else path.ids[0];
+        pub fn id(path: *const Self) ?NodeId {
+            return if (path.len == 0) null else path.ids[0];
         }
 
         pub fn push(path: *Self, node: NodeId) void {
@@ -96,7 +95,7 @@ pub const State = struct {
     gpa: std.mem.Allocator,
     tasks: *Tasks,
     host: Host,
-    wanted: *NodeId,
+    wanted: *?NodeId,
     closed: *bool,
     vsync: *bool,
     limit: *?f64,

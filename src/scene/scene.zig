@@ -76,7 +76,7 @@ pub fn Scene(comptime Impl: type, comptime Root: type) type {
         /// The node that holds the pointer and the button it holds it with,
         /// and where the pointer was seen last, which is kept while it is
         /// outside the window.
-        held: NodeId = 0,
+        held: ?NodeId = null,
         held_by: input.MouseButton = .left,
         last: Point = .{},
         /// What the views that watch the pointer were told last: the path
@@ -84,9 +84,9 @@ pub fn Scene(comptime Impl: type, comptime Root: type) type {
         told: Path = .{},
         told_at: Point = .{},
         /// The node that takes the typed text.
-        typing: NodeId = 0,
+        typing: ?NodeId = null,
         /// The component that asked for the focus since the last build.
-        wanted: NodeId = 0,
+        wanted: ?NodeId = null,
         /// Whether a function asked to close the scene.
         closed: bool = false,
         /// When the last drawing asked for the next one.
@@ -187,7 +187,8 @@ pub fn Scene(comptime Impl: type, comptime Root: type) type {
 
         // Whether a view holds the pointer outside its bounds.
         fn strays(s: *const Self) bool {
-            return s.held != 0 and !node_zig.contains(s.hover.slice(), s.held);
+            const held = s.held orelse return false;
+            return !node_zig.contains(s.hover.slice(), held);
         }
 
         /// Returns false once the implementation reports a close that the
@@ -312,7 +313,7 @@ pub fn Scene(comptime Impl: type, comptime Root: type) type {
             for (0..4) |_| {
                 if (!s.round(size, scale)) break;
             }
-            if (s.state.inputs != 0 or s.typing != 0) s.retype();
+            if (s.state.inputs != 0 or s.typing != null) s.retype();
         }
 
         // Builds and lays out the tree once, and returns whether a component
@@ -331,8 +332,8 @@ pub fn Scene(comptime Impl: type, comptime Root: type) type {
 
             if (state.stale) {
                 var focus = s.pathTo(s.focus.id());
-                if (focus.id() == 0) {
-                    var anchor: NodeId = 0;
+                if (focus.id() == null) {
+                    var anchor: ?NodeId = null;
                     _ = popup.anchorOf(&s.root, s.focus.slice(), &anchor);
                     focus = s.pathTo(anchor);
                 }
@@ -340,13 +341,13 @@ pub fn Scene(comptime Impl: type, comptime Root: type) type {
                 inline for (.{ &s.hover, &s.press }) |path| {
                     s.move(path, s.pathTo(path.id()));
                 }
-                if (s.pathTo(s.held).id() == 0) s.held = 0;
+                if (s.pathTo(s.held).id() == null) s.held = null;
             }
-            if (s.wanted != 0) {
-                var walk: input.FocusWalk = .{ .current = 0 };
-                _ = input.walkFocusIn(&s.root, s.wanted, &walk);
-                s.wanted = 0;
-                if (walk.first != 0) s.move(&s.focus, s.pathTo(walk.first));
+            if (s.wanted) |wanted| {
+                var walk: input.FocusWalk = .{ .current = null };
+                _ = input.walkFocusIn(&s.root, wanted, &walk);
+                s.wanted = null;
+                if (walk.first) |first| s.move(&s.focus, s.pathTo(first));
             }
             const measured = state.built or !std.meta.eql(size, s.size) or scale != s.scale;
             if (measured) {
@@ -372,16 +373,19 @@ pub fn Scene(comptime Impl: type, comptime Root: type) type {
         // on both sides instead of going on in the next input.
         fn retype(s: *Self) void {
             var found: input.Typing = .{};
-            const focus = s.focus.id();
-            if (s.state.active and focus != 0) {
-                _ = input.typingArea(&s.root, focus, &found);
+            if (s.state.active) {
+                if (s.focus.id()) |focus| {
+                    _ = input.typingArea(&s.root, focus, &found);
+                }
             }
-            if (found.target != s.typing and s.typing != 0) {
-                _ = s.offer(s.typing, .{
-                    .text = .{ .text = "", .composing = true },
-                });
-                if (s.state.typing != null) s.impl.input(null);
-                s.state.typing = null;
+            if (s.typing) |typing| {
+                if (found.target != typing) {
+                    _ = s.offer(typing, .{
+                        .text = .{ .text = "", .composing = true },
+                    });
+                    if (s.state.typing != null) s.impl.input(null);
+                    s.state.typing = null;
+                }
             }
             s.typing = found.target;
             if (std.meta.eql(found.area, s.state.typing)) return;
@@ -389,9 +393,9 @@ pub fn Scene(comptime Impl: type, comptime Root: type) type {
             s.impl.input(found.area);
         }
 
-        fn pathTo(s: *Self, id: NodeId) Path {
+        fn pathTo(s: *Self, id: ?NodeId) Path {
             var path: Path = .{};
-            if (id != 0) _ = input.findPath(&s.root, id, &path);
+            if (id) |target| _ = input.findPath(&s.root, target, &path);
             return path;
         }
 
@@ -473,8 +477,8 @@ pub fn Scene(comptime Impl: type, comptime Root: type) type {
 
         // Tells the view that holds the pointer what the pointer does.
         fn hold(s: *Self, phase: @FieldType(input.Pointer, "phase")) void {
-            if (s.held == 0) return;
-            _ = s.offer(s.held, .{ .pointer = .{
+            const held = s.held orelse return;
+            _ = s.offer(held, .{ .pointer = .{
                 .phase = phase,
                 .button = s.held_by,
                 .x = s.last.x,
@@ -492,7 +496,7 @@ pub fn Scene(comptime Impl: type, comptime Root: type) type {
             s.pending = true;
             if (active) return;
             s.hold(.cancel);
-            s.held = 0;
+            s.held = null;
             s.move(&s.press, .{});
         }
 
@@ -511,8 +515,8 @@ pub fn Scene(comptime Impl: type, comptime Root: type) type {
             const left = button.button == .left;
 
             if (button.down) {
-                if (s.held != 0) return;
-                if (s.hover.id() == 0 and s.dismiss()) {
+                if (s.held != null) return;
+                if (s.hover.id() == null and s.dismiss()) {
                     if (left) return;
                     s.update();
                     s.hoverAt(.{ .x = button.x, .y = button.y });
@@ -520,9 +524,11 @@ pub fn Scene(comptime Impl: type, comptime Root: type) type {
                 var found: input.Nearest = .{};
                 if (left) {
                     s.setKeyboard(false);
-                    _ = input.nearest(&s.root, s.hover.id(), &found);
-                    if (found.focusable != 0) {
-                        s.move(&s.focus, s.hover.from(found.focusable));
+                    if (s.hover.id()) |over| {
+                        _ = input.nearest(&s.root, over, &found);
+                    }
+                    if (found.focusable) |focusable| {
+                        s.move(&s.focus, s.hover.from(focusable));
                     }
                 }
                 s.held = s.offer(s.hover.id(), .{ .pointer = .{
@@ -534,24 +540,25 @@ pub fn Scene(comptime Impl: type, comptime Root: type) type {
                     .mod = button.mod,
                 } });
                 s.held_by = button.button;
-                if (s.held != 0) {
+                if (s.held != null) {
                     s.move(&s.press, .{});
                 } else if (left) {
-                    s.move(&s.press, s.hover.from(found.tap));
+                    const tap = if (found.tap) |tap| s.hover.from(tap) else Path{};
+                    s.move(&s.press, tap);
                 }
                 return;
             }
 
-            if (s.held != 0) {
+            if (s.held != null) {
                 if (button.button != s.held_by) return;
                 s.hold(.up);
-                s.held = 0;
+                s.held = null;
                 return;
             }
             if (!left) return;
-            const target = s.press.id();
+            const target = s.press.id() orelse return;
             s.move(&s.press, .{});
-            if (target != 0 and node_zig.contains(s.hover.slice(), target)) {
+            if (node_zig.contains(s.hover.slice(), target)) {
                 _ = s.offer(target, .click);
             }
         }
@@ -562,7 +569,7 @@ pub fn Scene(comptime Impl: type, comptime Root: type) type {
         // dismisses the popups instead.
         fn pressKey(s: *Self, press: input.KeyPress) void {
             if (press.down and !press.isModifier()) s.setKeyboard(true);
-            if (s.offer(s.focus.id(), .{ .key = press }) != 0) return;
+            if (s.offer(s.focus.id(), .{ .key = press }) != null) return;
             if (!press.down) return;
             if (s.shortcut(press)) return;
 
@@ -584,12 +591,12 @@ pub fn Scene(comptime Impl: type, comptime Root: type) type {
         // Returns whether a shortcut ran.
         fn shortcut(s: *Self, press: input.KeyPress) bool {
             if (comptime !input.binds(@TypeOf(s.root))) return false;
-            var by: NodeId = 0;
+            var by: ?NodeId = null;
             if (!popup.shortcut(&s.root, press, .{}, &s.state, &by)) {
                 input.shortcut(&s.root, press, .{}, &s.state, &by);
             }
-            if (by != 0) s.pending = true;
-            return by != 0;
+            if (by != null) s.pending = true;
+            return by != null;
         }
 
         // Moves the pointer to `at` and offers `what` to the view there.
@@ -598,13 +605,13 @@ pub fn Scene(comptime Impl: type, comptime Root: type) type {
             _ = s.offer(s.hover.id(), what);
         }
 
-        // Returns the node that handled it, or 0, which also stands for no
-        // node to offer it to.
-        fn offer(s: *Self, target: NodeId, what: input.Offer) NodeId {
-            if (target == 0) return 0;
-            var by: NodeId = 0;
-            _ = input.bubble(&s.root, target, what, .{}, &s.state, &by);
-            if (by != 0) s.pending = true;
+        // Returns the node that handled it. Nothing is offered without a
+        // target.
+        fn offer(s: *Self, target: ?NodeId, what: input.Offer) ?NodeId {
+            const to = target orelse return null;
+            var by: ?NodeId = null;
+            _ = input.bubble(&s.root, to, what, .{}, &s.state, &by);
+            if (by != null) s.pending = true;
             return by;
         }
     };

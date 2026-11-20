@@ -305,8 +305,7 @@ fn syncList(node: anytype, state: *State, owners: anytype) void {
 
 // Rows follow the `id` of their elements, so moving or removing an element
 // keeps the focus and the state of the other rows. Rows mostly keep their
-// order, so the search for a row starts after the last match. A row that was
-// taken gives up its id.
+// order, so the search for a row starts after the last match.
 fn syncKeyed(
     node: anytype,
     elements: anytype,
@@ -318,6 +317,9 @@ fn syncKeyed(
     var old_keys = node.widget.keys;
     defer old_rows.deinit(state.gpa);
     defer old_keys.deinit(state.gpa);
+    var taken = std.DynamicBitSetUnmanaged.initEmpty(state.gpa, old_rows.items.len) catch
+        @panic("out of memory");
+    defer taken.deinit(state.gpa);
 
     const rows = &node.children;
     const keys = &node.widget.keys;
@@ -331,14 +333,12 @@ fn syncKeyed(
         const row = rows.addOneAssumeCapacity();
         const found = for (0..old_rows.items.len) |n| {
             const j = (next + n) % old_rows.items.len;
-            if (old_rows.items[j].id != 0 and List.sameKey(old_keys.items[j], element.id)) {
-                break j;
-            }
+            if (!taken.isSet(j) and List.sameKey(old_keys.items[j], element.id)) break j;
         } else null;
 
         if (found) |j| {
             row.* = old_rows.items[j];
-            old_rows.items[j].id = 0;
+            taken.set(j);
             keys.appendAssumeCapacity(old_keys.items[j]);
             apply(row, List.item(elements, i), state, owners, .function);
             next = j + 1;
@@ -347,8 +347,8 @@ fn syncKeyed(
             mount(row, List.item(elements, i), state, owners);
         }
     }
-    for (old_rows.items, old_keys.items) |*row, key| {
-        if (row.id == 0) continue;
+    for (old_rows.items, old_keys.items, 0..) |*row, key, j| {
+        if (taken.isSet(j)) continue;
         destroy(row, state, owners);
         List.freeKey(state.gpa, key);
     }

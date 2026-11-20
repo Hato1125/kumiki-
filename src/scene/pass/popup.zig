@@ -200,12 +200,12 @@ pub fn paint(node: anytype, target: *Target) void {
 /// The first focusable node of the view of the outermost popup on `path`
 /// that is no longer open: where the focus goes when it was in what that
 /// popup showed. Returns whether there is such a popup.
-pub fn anchorOf(node: anytype, path: []const node_zig.NodeId, anchor: *node_zig.NodeId) bool {
+pub fn anchorOf(node: anytype, path: []const node_zig.NodeId, anchor: *?node_zig.NodeId) bool {
     if (comptime !pops(@TypeOf(node.*))) return false;
     if (!node_zig.contains(path, node.id)) return false;
     if (comptime isPopup(@TypeOf(node.widget))) {
         if (!node.widget.active and node_zig.contains(path, node.children[1].id)) {
-            var walk: input.FocusWalk = .{ .current = 0 };
+            var walk: input.FocusWalk = .{ .current = null };
             input.walkFocus(&node.children[0], &walk);
             anchor.* = walk.first;
             return true;
@@ -255,7 +255,7 @@ pub fn shortcut(
     press: input.KeyPress,
     owners: anytype,
     state: *const State,
-    by: *node_zig.NodeId,
+    by: *?node_zig.NodeId,
 ) bool {
     if (comptime !pops(@TypeOf(node.*))) return false;
     const Widget = @TypeOf(node.widget);
