@@ -29,43 +29,38 @@ pub const Painter = struct {
         };
     }
 
-    pub fn fill(p: Painter, corners: gfx.Corners, color: gfx.Color) void {
-        if (color.a == 0) return;
-        p.canvas.rect(.{
+    fn rect(p: Painter, corners: gfx.Corners) gfx.Rect {
+        return .{
             .x = p.bounds.x,
             .y = p.bounds.y,
             .width = p.bounds.w,
             .height = p.bounds.h,
-            .color = color,
             .corners = corners,
-        });
+        };
+    }
+
+    pub fn fill(p: Painter, corners: gfx.Corners, color: gfx.Color) void {
+        if (color.a == 0) return;
+        var shape = p.rect(corners);
+        shape.color = color;
+        p.canvas.rect(shape);
     }
 
     /// Fills the bounds with a material of the canvas, from what is drawn
     /// under them so far.
     pub fn material(p: Painter, corners: gfx.Corners, with: gfx.MaterialFill) void {
-        p.canvas.rect(.{
-            .x = p.bounds.x,
-            .y = p.bounds.y,
-            .width = p.bounds.w,
-            .height = p.bounds.h,
-            .material = with,
-            .corners = corners,
-        });
+        var shape = p.rect(corners);
+        shape.material = with;
+        p.canvas.rect(shape);
     }
 
     /// The stroke is kept inside the bounds.
     pub fn stroke(p: Painter, corners: gfx.Corners, width: f32, color: gfx.Color) void {
         if (color.a == 0 or width <= 0) return;
-        p.canvas.rect(.{
-            .x = p.bounds.x,
-            .y = p.bounds.y,
-            .width = p.bounds.w,
-            .height = p.bounds.h,
-            .color = .transparent,
-            .corners = corners,
-            .border = .{ .width = width, .color = color },
-        });
+        var shape = p.rect(corners);
+        shape.color = .transparent;
+        shape.border = .{ .width = width, .color = color };
+        p.canvas.rect(shape);
     }
 
     /// The time of this frame in seconds, on the clock of Context.now.
@@ -85,15 +80,9 @@ pub const Painter = struct {
 /// after everything else.
 pub fn paint(node: anytype, target: *Target) void {
     const Widget = @TypeOf(node.widget);
-    const at = node_zig.offsetOf(node);
     const p: Painter = .{
         .canvas = target.canvas,
-        .bounds = .{
-            .x = at.x,
-            .y = at.y,
-            .w = node.size.width,
-            .h = node.size.height,
-        },
+        .bounds = node_zig.boundsOf(node),
         .target = target,
     };
 

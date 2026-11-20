@@ -6,7 +6,8 @@
 const std = @import("std");
 
 const anim = @import("anime");
-const invoke = @import("../base/call.zig").invoke;
+const call = @import("../base/call.zig");
+const invoke = call.invoke;
 const Target = @import("paint.zig").Target;
 const input = @import("input.zig");
 const pass = @import("layout.zig");
@@ -15,7 +16,7 @@ const State = node_zig.State;
 const each = node_zig.each;
 const isPopup = node_zig.isPopup;
 const painter = @import("paint.zig");
-const markTargets = @import("../base/call.zig").markTargets;
+const markTargets = call.markTargets;
 const types = @import("types");
 const Alignment = types.Alignment;
 const Constraint = types.Constraint;
@@ -259,7 +260,7 @@ pub fn shortcut(
 ) bool {
     if (comptime !pops(@TypeOf(node.*))) return false;
     const Widget = @TypeOf(node.widget);
-    const inner = if (comptime node_zig.isComponent(Widget)) owners ++ .{node} else owners;
+    const inner = call.ownersIn(node, owners);
     if (comptime isPopup(Widget)) {
         if (node.widget.active) {
             const content = &node.children[1];
@@ -282,7 +283,7 @@ pub fn dismiss(
 ) void {
     if (comptime !pops(@TypeOf(node.*))) return;
     const Widget = @TypeOf(node.widget);
-    const inner = if (comptime node_zig.isComponent(Widget)) owners ++ .{node} else owners;
+    const inner = call.ownersIn(node, owners);
     _ = each(node, .shown, dismiss, .{ inner, state, told });
     if (comptime !isPopup(Widget)) return;
     if (!node.widget.active) return;

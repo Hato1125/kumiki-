@@ -106,7 +106,7 @@ pub fn mount(
 
 pub fn destroy(node: anytype, state: *State, owners: anytype) void {
     const Widget = @TypeOf(node.widget);
-    const inner = if (comptime isComponent(Widget)) owners ++ .{node} else owners;
+    const inner = call.ownersIn(node, owners);
     _ = each(node, .all, destroy, .{ state, inner });
     if (comptime node_zig.handles(Widget, .input)) state.inputs -= 1;
     if (comptime isComponent(Widget)) {

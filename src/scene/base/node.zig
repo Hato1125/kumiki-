@@ -281,6 +281,16 @@ pub fn offsetOf(node: anytype) types.Point {
     return offsetOf(&node.children[node.children.len - 1]);
 }
 
+pub fn boundsOf(node: anytype) types.Bounds {
+    const at = offsetOf(node);
+    return .{
+        .x = at.x,
+        .y = at.y,
+        .w = node.size.width,
+        .h = node.size.height,
+    };
+}
+
 fn Children(comptime View: type) type {
     if (isComponent(View)) return struct { NodeOf(@TypeOf(View.view)) };
     if (!isContainer(View)) {

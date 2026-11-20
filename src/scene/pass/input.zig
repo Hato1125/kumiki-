@@ -13,6 +13,7 @@ const isFocusable = node_zig.isFocusable;
 const has = node_zig.has;
 const handles = node_zig.handles;
 const offsetOf = node_zig.offsetOf;
+const boundsOf = node_zig.boundsOf;
 const task_zig = @import("../base/task.zig");
 const markTargets = call.markTargets;
 
@@ -303,16 +304,6 @@ pub fn walkFocusIn(node: anytype, target: NodeId, walk: *FocusWalk) bool {
     return true;
 }
 
-fn boundsOf(node: anytype) types.Bounds {
-    const at = offsetOf(node);
-    return .{
-        .x = at.x,
-        .y = at.y,
-        .w = node.size.width,
-        .h = node.size.height,
-    };
-}
-
 /// The node that takes typed text and where an input method shows what it
 /// offers for it. `area` is null when the node takes none at the moment.
 pub const Typing = struct {
@@ -368,6 +359,14 @@ fn activates(offer: Offer, state: *const State) bool {
     };
 }
 
+fn localTo(node: anytype, event: anytype) @TypeOf(event) {
+    const origin = offsetOf(node);
+    var local = event;
+    local.x -= origin.x;
+    local.y -= origin.y;
+    return local;
+}
+
 fn handle(
     node: anytype,
     offer: Offer,
@@ -390,18 +389,12 @@ fn handle(
         .wheel => if (offer != .wheel or !invoke(f, owners, state, offer.wheel)) return false,
         .pointer => {
             if (offer != .pointer) return false;
-            const origin = offsetOf(node);
-            var local = offer.pointer;
-            local.x -= origin.x;
-            local.y -= origin.y;
+            const local = localTo(node, offer.pointer);
             if (!invoke(f, owners, state, local)) return false;
         },
         .drop => {
             if (offer != .drop) return false;
-            const origin = offsetOf(node);
-            var local = offer.drop;
-            local.x -= origin.x;
-            local.y -= origin.y;
+            const local = localTo(node, offer.drop);
             if (!invoke(f, owners, state, local)) return false;
         },
         .hover => return false,
@@ -428,7 +421,7 @@ pub fn bubble(
     state: *const State,
     by: *?NodeId,
 ) bool {
-    const inner = if (comptime node_zig.isComponent(@TypeOf(node.widget))) owners ++ .{node} else owners;
+    const inner = call.ownersIn(node, owners);
     if (node.id != target and !each(node, .shown, bubble, .{ target, offer, inner, state, by })) {
         return false;
     }
@@ -469,7 +462,7 @@ fn sweep(
     by: *?NodeId,
 ) bool {
     if (comptime !binds(@TypeOf(node.*))) return false;
-    const inner = if (comptime node_zig.isComponent(@TypeOf(node.widget))) owners ++ .{node} else owners;
+    const inner = call.ownersIn(node, owners);
     if (each(node, .front, sweep, .{ offer, inner, state, by })) return true;
     if (!handle(node, offer, owners, state)) return false;
     by.* = node.id;
@@ -506,19 +499,18 @@ pub fn watch(
 ) void {
     if (comptime !watches(@TypeOf(node.*))) return;
     const Widget = @TypeOf(node.widget);
-    const inner = if (comptime node_zig.isComponent(Widget)) owners ++ .{node} else owners;
+    const inner = call.ownersIn(node, owners);
     _ = each(node, .all, watch, .{ seen, inner, state, told });
     if (comptime !handles(Widget, .hover)) return;
 
     const was = contains(seen.was, node.id);
     const is = contains(seen.is, node.id);
     if (was == is and !(is and seen.moved)) return;
-    const origin = offsetOf(node);
-    const hover: Hover = .{
+    const hover = localTo(node, Hover{
         .phase = if (!was) .enter else if (!is) .leave else .move,
-        .x = seen.at.x - origin.x,
-        .y = seen.at.y - origin.y,
-    };
+        .x = seen.at.x,
+        .y = seen.at.y,
+    });
     _ = invoke(Widget.handler, owners, state, hover);
     markTargets(Widget.handler, owners);
     told.* = true;
@@ -550,7 +542,7 @@ pub fn deliver(
 ) bool {
     const Widget = @TypeOf(node.widget);
     const component = comptime node_zig.isComponent(Widget);
-    const inner = if (component) owners ++ .{node} else owners;
+    const inner = call.ownersIn(node, owners);
     if (node.id != target and !each(node, .all, deliver, .{ target, task, inner, state, handled })) {
         return false;
     }

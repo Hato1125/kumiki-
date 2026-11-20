@@ -108,6 +108,20 @@ fn Outer(comptime Owners: type) type {
     return @Tuple(field_types[0 .. field_types.len - 1]);
 }
 
+/// The owners of what is inside `node`: a component joins those around it.
+pub fn ownersIn(
+    node: anytype,
+    owners: anytype,
+) OwnersIn(@TypeOf(node), @TypeOf(owners)) {
+    if (comptime !isComponent(@TypeOf(node.widget))) return owners;
+    return owners ++ .{node};
+}
+
+fn OwnersIn(comptime N: type, comptime Owners: type) type {
+    if (!isComponent(WidgetOf(N))) return Owners;
+    return @Tuple(@typeInfo(Owners).@"struct".field_types ++ .{N});
+}
+
 fn bind(comptime P: type, owners: anytype, state: *const State) P {
     if (@TypeOf(P.callee) == void) return .{};
     const Owners = @TypeOf(owners.*);
