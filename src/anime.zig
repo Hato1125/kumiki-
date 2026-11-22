@@ -8,40 +8,51 @@ pub const Curve = union(enum) {
     bezier: [4]f32,
     spring: Spring,
 
-    /// Maps progress in [0, 1] onto the curve. Beziers and springs may overshoot.
-    pub fn apply(curve: Curve, t: f32) f32 {
-        return switch (curve) {
-            .linear => t,
-            .ease_in => t * t * t,
-            .ease_out => 1 - std.math.pow(f32, 1 - t, 3),
-            .ease_in_out => if (t < 0.5) 4 * t * t * t else 1 - std.math.pow(f32, 2 - 2 * t, 3) / 2,
-            .bezier => |p| bezierAt(p, t),
-            .spring => |s| if (t >= 1) 1 else s.position(t * s.settleTime()),
+    /// Beziers and springs may overshoot [0, 1].
+    pub fn apply(self: Curve, progress: f32) f32 {
+        return switch (self) {
+            .linear => progress,
+            .ease_in => progress * progress * progress,
+            .ease_out => 1 - std.math.pow(f32, 1 - progress, 3),
+            .ease_in_out => if (progress < 0.5)
+                4 * progress * progress * progress
+            else
+                1 - std.math.pow(f32, 2 - 2 * progress, 3) / 2,
+            .bezier => |points| bezierAt(points, progress),
+            .spring => |spring| if (progress >= 1)
+                1
+            else
+                spring.position(progress * spring.settleTime()),
         };
     }
 };
 
-// One coordinate of a cubic bezier from 0 to 1 with inner control points a, b.
-fn bezierCoordinate(a: f32, b: f32, s: f32) f32 {
-    const r = 1 - s;
-    return 3 * r * r * s * a + 3 * r * s * s * b + s * s * s;
+fn bezierCoordinate(first: f32, second: f32, along: f32) f32 {
+    const rest = 1 - along;
+
+    return 3 * rest * rest * along * first +
+        3 * rest * along * along * second +
+        along * along * along;
 }
 
-// x grows with the curve parameter, so bisection finds where x equals t.
-fn bezierAt(p: [4]f32, t: f32) f32 {
-    if (t <= 0) return 0;
-    if (t >= 1) return 1;
+// x grows with the curve parameter, so bisection finds where x equals
+// `target`.
+fn bezierAt(points: [4]f32, target: f32) f32 {
+    if (target <= 0) return 0;
+    if (target >= 1) return 1;
+
     var low: f32 = 0;
     var high: f32 = 1;
     for (0..24) |_| {
         const middle = (low + high) / 2;
-        if (bezierCoordinate(p[0], p[2], middle) < t) {
+        if (bezierCoordinate(points[0], points[2], middle) < target) {
             low = middle;
         } else {
             high = middle;
         }
     }
-    return bezierCoordinate(p[1], p[3], (low + high) / 2);
+
+    return bezierCoordinate(points[1], points[3], (low + high) / 2);
 }
 
 /// A unit mass on a spring, released at rest one unit away from where it
@@ -52,30 +63,42 @@ pub const Spring = struct {
 
     const tolerance = 0.001;
 
-    /// How far the mass has come after `t` seconds: 0 at the start, 1 at rest.
-    pub fn position(s: Spring, t: f32) f32 {
-        const frequency = @sqrt(s.stiffness);
-        const ratio = s.damping;
+    /// How far the mass has come after `time` seconds: 0 at the start, 1 at
+    /// rest.
+    pub fn position(self: Spring, time: f32) f32 {
+        const frequency = @sqrt(self.stiffness);
+        const ratio = self.damping;
         const decay = ratio * frequency;
+
         if (ratio < 1) {
             const damped = frequency * @sqrt(1 - ratio * ratio);
-            return 1 - @exp(-decay * t) * (@cos(damped * t) + decay / damped * @sin(damped * t));
+            const cosine = @cos(damped * time);
+            const sine = @sin(damped * time);
+
+            return 1 - @exp(-decay * time) * (cosine + decay / damped * sine);
         }
-        if (ratio == 1) return 1 - @exp(-frequency * t) * (1 + frequency * t);
+
+        if (ratio == 1)
+            return 1 - @exp(-frequency * time) * (1 + frequency * time);
+
         const root = frequency * @sqrt(ratio * ratio - 1);
         const slow = root - decay;
         const fast = -root - decay;
-        return 1 - (fast * @exp(slow * t) - slow * @exp(fast * t)) / (fast - slow);
+        const mixed = fast * @exp(slow * time) - slow * @exp(fast * time);
+
+        return 1 - mixed / (fast - slow);
     }
 
     /// Seconds until the mass stays within `tolerance` of rest. At critical
     /// damping, (1 + x) * exp(-x) falls below the tolerance at x = 9.2334.
-    pub fn settleTime(s: Spring) f32 {
-        const frequency = @sqrt(s.stiffness);
-        const ratio = s.damping;
+    pub fn settleTime(self: Spring) f32 {
+        const frequency = @sqrt(self.stiffness);
+        const ratio = self.damping;
         const decades = -@log(@as(f32, tolerance));
+
         if (ratio < 1) return decades / (ratio * frequency);
         if (ratio == 1) return 9.2334 / frequency;
+
         return decades / (frequency * (ratio - @sqrt(ratio * ratio - 1)));
     }
 };
@@ -84,15 +107,24 @@ pub const Animation = struct {
     duration: f32 = 0.25,
     curve: Curve = .ease_in_out,
 
-    /// Follows a spring for as long as it takes to settle.
     pub fn spring(damping: f32, stiffness: f32) Animation {
-        const s: Spring = .{ .damping = damping, .stiffness = stiffness };
-        return .{ .duration = s.settleTime(), .curve = .{ .spring = s } };
+        const physics: Spring = .{
+            .damping = damping,
+            .stiffness = stiffness,
+        };
+
+        return .{
+            .duration = physics.settleTime(),
+            .curve = .{ .spring = physics },
+        };
     }
 
     /// `points` are the x1, y1, x2, y2 of a CSS cubic-bezier().
     pub fn bezier(duration: f32, points: [4]f32) Animation {
-        return .{ .duration = duration, .curve = .{ .bezier = points } };
+        return .{
+            .duration = duration,
+            .curve = .{ .bezier = points },
+        };
     }
 };
 
@@ -106,99 +138,150 @@ pub fn Tween(comptime T: type) type {
         const Self = @This();
 
         pub fn init(value: T) Self {
-            return .{ .from = value, .to = value };
+            return .{
+                .from = value,
+                .to = value,
+            };
         }
 
         /// Starts moving from the currently shown value toward `next`. An
         /// equal target is taken too, because it may hold newer strings.
-        pub fn retarget(tween: *Self, spec: Animation, next: T, now: f64) void {
-            if (!same(T, next, tween.to)) {
-                tween.from = tween.at(spec, now);
-                tween.start = now;
-                tween.running = true;
+        pub fn retarget(
+            self: *Self,
+            spec: Animation,
+            next: T,
+            now: f64,
+        ) void {
+            if (!same(T, next, self.to)) {
+                self.from = self.at(spec, now);
+                self.start = now;
+                self.running = true;
             }
-            tween.to = next;
+
+            self.to = next;
         }
 
-        pub fn at(tween: *const Self, spec: Animation, now: f64) T {
-            if (!tween.running) return tween.to;
-            const elapsed: f32 = @floatCast(now - tween.start);
-            const t = if (spec.duration <= 0) 1 else std.math.clamp(elapsed / spec.duration, 0, 1);
-            return lerp(T, tween.from, tween.to, spec.curve.apply(t));
+        pub fn at(self: *const Self, spec: Animation, now: f64) T {
+            if (!self.running) return self.to;
+
+            const elapsed: f32 = @floatCast(now - self.start);
+            const progress = if (spec.duration <= 0)
+                1
+            else
+                std.math.clamp(elapsed / spec.duration, 0, 1);
+
+            return lerp(T, self.from, self.to, spec.curve.apply(progress));
         }
 
-        pub fn finish(tween: *Self, spec: Animation, now: f64) void {
-            const elapsed: f32 = @floatCast(now - tween.start);
-            if (elapsed >= spec.duration) tween.running = false;
+        pub fn finish(self: *Self, spec: Animation, now: f64) void {
+            const elapsed: f32 = @floatCast(now - self.start);
+            if (elapsed >= spec.duration) self.running = false;
         }
     };
 }
 
 /// Compares slices by content, so a string that was formatted again into a
 /// new buffer does not restart an animation.
-pub fn same(comptime T: type, a: T, b: T) bool {
+pub fn same(comptime T: type, first: T, second: T) bool {
     switch (@typeInfo(T)) {
-        .pointer => |p| {
-            if (p.size != .slice) return std.meta.eql(a, b);
-            if (a.len != b.len) return false;
-            for (a, b) |va, vb| if (!same(p.child, va, vb)) return false;
+        .pointer => |pointer| {
+            if (pointer.size != .slice) return std.meta.eql(first, second);
+            if (first.len != second.len) return false;
+
+            for (first, second) |first_item, second_item|
+                if (!same(pointer.child, first_item, second_item)) return false;
+
             return true;
         },
-        .@"struct" => |s| {
-            inline for (s.field_names, s.field_types, s.field_attrs) |name, F, attrs| {
-                if (!attrs.@"comptime" and !same(F, @field(a, name), @field(b, name))) {
-                    return false;
-                }
+        .@"struct" => |info| {
+            inline for (
+                info.field_names,
+                info.field_types,
+                info.field_attrs,
+            ) |name, Field, attrs| {
+                if (attrs.@"comptime") continue;
+
+                const left = @field(first, name);
+                const right = @field(second, name);
+                if (!same(Field, left, right)) return false;
             }
+
             return true;
         },
-        .optional => |o| {
-            if (a) |va| if (b) |vb| return same(o.child, va, vb);
-            return a == null and b == null;
+        .optional => |optional| {
+            if (first) |first_value|
+                if (second) |second_value|
+                    return same(optional.child, first_value, second_value);
+
+            return first == null and second == null;
         },
         .array => |array| {
-            for (a, b) |va, vb| if (!same(array.child, va, vb)) return false;
+            for (first, second) |first_item, second_item|
+                if (!same(array.child, first_item, second_item)) return false;
+
             return true;
         },
-        else => return std.meta.eql(a, b),
+        else => return std.meta.eql(first, second),
     }
 }
 
 /// Values that cannot be interpolated, such as slices and enums, switch to
-/// `b` at once. `t` may leave [0, 1]; integers then stop at the ends of their
-/// range. They go through f64, which holds every 32-bit integer exactly. A
-/// struct that declares `lerp(a, b, t)` is interpolated by it instead of
-/// field by field.
-pub fn lerp(comptime T: type, a: T, b: T, t: f32) T {
-    if (comptime @typeInfo(T) == .@"struct" and @hasDecl(T, "lerp")) {
-        return T.lerp(a, b, t);
-    }
+/// `second` at once. `progress` may leave [0, 1]; integers then stop at the
+/// ends of their range. They go through f64, which holds every 32-bit
+/// integer exactly. A struct that declares `lerp(first, second, progress)` is
+/// interpolated by it instead of field by field.
+pub fn lerp(comptime T: type, first: T, second: T, progress: f32) T {
+    const custom = comptime @typeInfo(T) == .@"struct" and
+        @hasDecl(T, "lerp");
+    if (custom) return T.lerp(first, second, progress);
+
     switch (@typeInfo(T)) {
-        .float => return a + (b - a) * @as(T, @floatCast(t)),
+        .float => {
+            return first + (second - first) * @as(T, @floatCast(progress));
+        },
         .int => {
-            if (a == b) return a;
-            const from: f64 = @floatFromInt(a);
-            const to: f64 = @floatFromInt(b);
-            return std.math.lossyCast(T, @round(from + (to - from) * t));
+            if (first == second) return first;
+
+            const from: f64 = @floatFromInt(first);
+            const to: f64 = @floatFromInt(second);
+
+            return std.math.lossyCast(T, @round(from + (to - from) * progress));
         },
-        .@"struct" => |s| {
-            var r: T = b;
-            inline for (s.field_names, s.field_types, s.field_attrs) |name, F, attrs| {
-                if (!attrs.@"comptime") {
-                    @field(r, name) = lerp(F, @field(a, name), @field(b, name), t);
-                }
+        .@"struct" => |info| {
+            var result: T = second;
+            inline for (
+                info.field_names,
+                info.field_types,
+                info.field_attrs,
+            ) |name, Field, attrs| {
+                if (attrs.@"comptime") continue;
+
+                const left = @field(first, name);
+                const right = @field(second, name);
+                @field(result, name) = lerp(Field, left, right, progress);
             }
-            return r;
+
+            return result;
         },
-        .optional => |o| {
-            if (a) |va| if (b) |vb| return lerp(o.child, va, vb, t);
-            return b;
+        .optional => |optional| {
+            if (first) |first_value|
+                if (second) |second_value|
+                    return lerp(
+                        optional.child,
+                        first_value,
+                        second_value,
+                        progress,
+                    );
+
+            return second;
         },
         .array => |array| {
-            var r: T = b;
-            for (&r, a, b) |*x, va, vb| x.* = lerp(array.child, va, vb, t);
-            return r;
+            var result: T = second;
+            for (&result, first, second) |*item, first_item, second_item|
+                item.* = lerp(array.child, first_item, second_item, progress);
+
+            return result;
         },
-        else => return b,
+        else => return second,
     }
 }

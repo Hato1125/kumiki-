@@ -33,15 +33,15 @@ pub const Image = struct {
         const decoded = try decode(file);
         errdefer std.c.free(decoded.pixels.?.ptr);
         try images.append(gpa, decoded);
+
         return .{ .index = images.items.len - 1 };
     }
 
-    pub fn deinit(image: Image) void {
-        const loaded = &images.items[image.index];
+    pub fn deinit(self: Image) void {
+        const loaded = &images.items[self.index];
         if (loaded.pixels) |pixels| std.c.free(pixels.ptr);
-        if (loaded.uploaded) |uploaded| {
+        if (loaded.uploaded) |uploaded|
             if (owner) |canvas| canvas.destroyImage(uploaded);
-        }
 
         loaded.* = .{
             .pixels = null,
@@ -51,8 +51,9 @@ pub const Image = struct {
     }
 
     /// In the pixels of the file.
-    pub fn size(image: Image) Extent {
-        const loaded = images.items[image.index];
+    pub fn size(self: Image) Extent {
+        const loaded = images.items[self.index];
+
         return .{
             .width = @floatFromInt(loaded.width),
             .height = @floatFromInt(loaded.height),
@@ -62,9 +63,10 @@ pub const Image = struct {
     /// What `canvas` draws the image as. The pixels go to the canvas the
     /// first time. Null for an image that was let go of or that the canvas
     /// could not take.
-    pub fn on(image: Image, canvas: *gfx.Canvas) ?gfx.Image {
-        const loaded = &images.items[image.index];
+    pub fn on(self: Image, canvas: *gfx.Canvas) ?gfx.Image {
+        const loaded = &images.items[self.index];
         if (loaded.uploaded) |uploaded| return uploaded;
+
         const pixels = loaded.pixels orelse return null;
         loaded.uploaded = canvas.createImage(.{
             .width = loaded.width,
@@ -74,6 +76,7 @@ pub const Image = struct {
         std.c.free(pixels.ptr);
         loaded.pixels = null;
         owner = canvas;
+
         return loaded.uploaded;
     }
 };
@@ -86,15 +89,16 @@ pub fn release() void {
 }
 
 pub fn shutdown() void {
-    for (images.items) |loaded| {
+    for (images.items) |loaded|
         if (loaded.pixels) |pixels| std.c.free(pixels.ptr);
-    }
+
     images.clearAndFree(gpa);
 }
 
 fn readFile(path: [:0]const u8) ![]u8 {
     const file = std.c.fopen(path, "rb") orelse return error.FileOpen;
     defer _ = std.c.fclose(file);
+
     var bytes: std.ArrayList(u8) = .empty;
     errdefer bytes.deinit(gpa);
     while (true) {
@@ -104,11 +108,17 @@ fn readFile(path: [:0]const u8) ![]u8 {
         if (count == 0) break;
         bytes.items.len += count;
     }
+
     return bytes.toOwnedSlice(gpa);
 }
 
 // Defined in image.c.
-extern fn kumiki_decode_image(data: [*]const u8, length: usize, width: *u32, height: *u32) ?[*]u8;
+extern fn kumiki_decode_image(
+    data: [*]const u8,
+    length: usize,
+    width: *u32,
+    height: *u32,
+) ?[*]u8;
 
 fn decode(file: []const u8) !Loaded {
     var width: u32 = 0;
