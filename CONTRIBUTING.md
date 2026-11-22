@@ -26,9 +26,15 @@ Before opening a PR, always make sure `zig build` and `zig fmt --check .` pass.
 Do not mark AI usage in a PR description with `Co-Authored-By` or a signature line.  
 Keep the description as short and clear as possible, and follow the format below.
 ```md
-# Summary
+# Objective
 
-- message1
-- message2
-...
+- Why this change is needed
+
+# Solution
+
+- What was changed
+
+# Testing
+
+- How it was checked
 ```

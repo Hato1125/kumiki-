@@ -31,6 +31,13 @@ jobs:
       - uses: mlugg/setup-zig@v2
         with:
           cache-key: ${{ matrix.target }}
+      - uses: actions/cache@v4
+        id: naga
+        with:
+          path: ~/.cargo/bin/naga*
+          key: naga-${{ runner.os }}-${{ runner.arch }}-26.0.0
+      - if: steps.naga.outputs.cache-hit != 'true'
+        run: cargo install naga-cli --version 26.0.0 --locked
       - run: zig build -Dtarget=${{ runner.os == 'macOS' && 'native' || matrix.target }} --summary all
 
   fmt:

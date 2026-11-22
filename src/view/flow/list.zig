@@ -1,12 +1,13 @@
 const std = @import("std");
 
-const types = @import("../types.zig");
+const types = @import("types");
 const Constraint = types.Constraint;
 const Extent = types.Extent;
 const Point = types.Point;
-const pass = @import("../layout.zig");
-const mod = @import("../mod.zig");
-const ReturnOf = @import("../node.zig").ReturnOf;
+const scene = @import("scene");
+const pass = scene.layout;
+const mod = scene.mod;
+const ReturnOf = scene.node.ReturnOf;
 
 /// The config of a list, which stacks one row per element of the slice that
 /// `source_fn` returns. Rows follow the `id` field of the elements when they
@@ -14,12 +15,15 @@ const ReturnOf = @import("../node.zig").ReturnOf;
 pub fn List(comptime source_fn: anytype, comptime make: anytype) type {
     const Slice = ReturnOf(source_fn);
     const Element = @typeInfo(Slice).pointer.child;
-    const Id = if (@typeInfo(Element) == .@"struct" and @hasField(Element, "id")) @FieldType(Element, "id") else void;
+    const has_id = @typeInfo(Element) == .@"struct" and
+        @hasField(Element, "id");
+    const Id = if (has_id) @FieldType(Element, "id") else void;
+    const Keys = if (Id != void) std.ArrayList(Id) else void;
     const is_string = Id == []const u8;
 
     return struct {
         gap: f32 = 0,
-        keys: if (keyed) std.ArrayList(Id) else void = if (keyed) .empty else {},
+        keys: Keys = if (keyed) .empty else {},
 
         const Self = @This();
 
@@ -35,9 +39,11 @@ pub fn List(comptime source_fn: anytype, comptime make: anytype) type {
 
         /// `make` takes a pointer to the element when its parameter is one,
         /// so rows can change their element.
-        pub fn item(elements: Slice, i: usize) Row {
-            const Param = @typeInfo(@TypeOf(make)).@"fn".params[0].type.?;
-            return make(if (comptime @typeInfo(Param) == .pointer) &elements[i] else elements[i]);
+        pub fn item(elements: Slice, index: usize) Row {
+            const Param = @typeInfo(@TypeOf(make)).@"fn".param_types[0].?;
+            const by_pointer = comptime @typeInfo(Param) == .pointer;
+
+            return make(if (by_pointer) &elements[index] else elements[index]);
         }
 
         pub fn sameKey(a: Id, b: Id) bool {
@@ -46,7 +52,9 @@ pub fn List(comptime source_fn: anytype, comptime make: anytype) type {
 
         /// String keys are copied because the elements may change them.
         pub fn ownKey(gpa: std.mem.Allocator, id: Id) Id {
-            return if (comptime is_string) gpa.dupe(u8, id) catch @panic("out of memory") else id;
+            if (comptime !is_string) return id;
+
+            return gpa.dupe(u8, id) catch @panic("out of memory");
         }
 
         pub fn freeKey(gpa: std.mem.Allocator, id: Id) void {
@@ -55,27 +63,43 @@ pub fn List(comptime source_fn: anytype, comptime make: anytype) type {
 
         pub fn deinitKeys(self: *Self, gpa: std.mem.Allocator) void {
             if (comptime !keyed) return;
+
             for (self.keys.items) |id| freeKey(gpa, id);
             self.keys.deinit(gpa);
         }
 
-        pub fn measureAll(self: Self, rows: anytype, c: Constraint) Extent {
+        pub fn measureAll(
+            self: Self,
+            rows: anytype,
+            constraint: Constraint,
+        ) Extent {
             var size: Extent = .{};
+
             for (rows.items, 0..) |*row, i| {
                 const row_size = pass.measure(row, .{
-                    .max = .{ .width = c.max.width, .height = types.inf },
+                    .max = .{
+                        .width = constraint.max.width,
+                        .height = types.inf,
+                    },
                 });
                 size.width = @max(size.width, row_size.width);
                 size.height += row_size.height + if (i == 0) 0 else self.gap;
             }
-            if (!std.math.isInf(c.max.width)) size.width = c.max.width;
-            return c.constrain(size);
+
+            if (!std.math.isInf(constraint.max.width))
+                size.width = constraint.max.width;
+
+            return constraint.constrain(size);
         }
 
         pub fn layoutAll(self: Self, rows: anytype, at: Point, _: Extent) void {
             var y = at.y;
+
             for (rows.items) |*row| {
-                pass.layout(row, .{ .x = at.x, .y = y });
+                pass.layout(row, .{
+                    .x = at.x,
+                    .y = y,
+                });
                 y += row.size.height + self.gap;
             }
         }

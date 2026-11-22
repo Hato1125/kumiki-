@@ -2,11 +2,11 @@
     .name = .kumiki,
     .version = "0.0.5",
     .fingerprint = 0xdeee8564638e6092,
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .gfx = .{
-            .url = "git+https://github.com/Hato1125/gfx.git#aa6252f0fefe69a2265408d7eb57dcfc939e5c01",
-            .hash = "gfx-0.0.0-66FrzVroAQAvtbQrTZM13XSVG16JkOmFSy1mleFxUIbk",
+            .url = "git+https://github.com/Hato1125/gfx.git#e098a940a604c7bd6326d701d327a55cf1954abd",
+            .hash = "gfx-0.0.0-66FrzbxPAwBs25kkxfk9ttWH1nQucpL-S2jTuxVRcWYk",
         },
         .sdl = .{
             .url = "git+https://github.com/castholm/SDL.git?ref=v0.5.4+3.4.16#b72b3671502a70e109350ecac90afdc480dcfcc6",
@@ -21,5 +21,8 @@
         "build.zig",
         "build.zig.zon",
         "src",
+        "README.md",
+        "CONTRIBUTING.md",
+        "LICENSE",
     },
 }

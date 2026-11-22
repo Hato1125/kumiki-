@@ -1,12 +1,14 @@
-const anim = @import("anime.zig");
+const anim = @import("anime");
 const gfx = @import("gfx");
-const image_zig = @import("image.zig");
-const text_zig = @import("text.zig");
-const types = @import("types.zig");
-const input = @import("input.zig");
-const mod = @import("mod.zig");
-const pass = @import("layout.zig");
-const window = @import("window.zig");
+const image_zig = @import("image");
+const text_zig = @import("text");
+const types = @import("types");
+const scene = @import("scene");
+const input = scene.input;
+const mod = scene.mod;
+const pass = scene.layout;
+const window = @import("host");
+const view = @import("view");
 
 test {
     @import("std").testing.refAllDecls(@This());
@@ -15,7 +17,7 @@ test {
 pub const run = window.run;
 pub const Window = window.Window;
 
-pub const Scene = @import("scene.zig").Scene;
+pub const Scene = scene.Scene;
 pub const Event = input.Event;
 pub const MouseButton = input.MouseButton;
 pub const MouseButtonEvent = input.MouseButtonEvent;
@@ -49,38 +51,41 @@ pub const Range = types.Range;
 pub const Constraint = types.Constraint;
 pub const inf = types.inf;
 pub const Alignment = types.Alignment;
-pub const Placement = @import("popup.zig").Placement;
-pub const Transition = @import("popup.zig").Transition;
+pub const Placement = scene.popup.Placement;
+pub const Transition = scene.popup.Transition;
 pub const Animation = anim.Animation;
-pub const Context = @import("cx.zig");
-pub const Callback = @import("call.zig").Callback;
+pub const Context = scene.Context;
+pub const Callback = scene.call.Callback;
 
 pub const measure = pass.measure;
 pub const layout = pass.layout;
-pub const offsetOf = @import("node.zig").offsetOf;
-pub const Painter = @import("paint.zig").Painter;
+pub const offsetOf = scene.node.offsetOf;
+pub const Painter = scene.paint.Painter;
 pub const Canvas = gfx.Canvas;
 pub const Layer = gfx.Layer;
 pub const Corners = gfx.Corners;
+pub const Material = gfx.Material;
+pub const MaterialSource = gfx.MaterialSource;
+pub const MaterialFill = gfx.MaterialFill;
 pub const Insets = mod.Insets;
 
-pub const Text = mod.Container(void, @import("view/text.zig").Text);
-pub const Rect = mod.Container(void, @import("view/rect.zig").Rect);
-pub const Picture = mod.Container(void, @import("view/image.zig").Picture);
+pub const Text = mod.Container(void, view.Text);
+pub const Rect = mod.Container(void, view.Rect);
+pub const Picture = mod.Container(void, view.Picture);
 pub const Image = image_zig.Image;
 
-pub const show = @import("view/show.zig").show;
+pub const show = view.show;
 pub const wrap = mod.wrap;
 
-pub const text = @import("view/text.zig").text;
-pub const rect = @import("view/rect.zig").rect;
-pub const image = @import("view/image.zig").image;
-pub const spacer = @import("view/spacer.zig").spacer;
-pub const row = @import("view/row.zig").row;
-pub const column = @import("view/column.zig").column;
-pub const stack = @import("view/stack.zig").stack;
-pub const list = @import("view/list.zig").list;
-pub const when = @import("view/when.zig").when;
-pub const select = @import("view/select.zig").select;
-pub const each = @import("view/each.zig").each;
-pub const Each = @import("view/each.zig").Each;
+pub const text = view.text;
+pub const rect = view.rect;
+pub const image = view.image;
+pub const spacer = view.spacer;
+pub const row = view.row;
+pub const column = view.column;
+pub const stack = view.stack;
+pub const list = view.list;
+pub const when = view.when;
+pub const select = view.select;
+pub const each = view.each;
+pub const Each = view.Each;
