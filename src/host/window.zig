@@ -3,12 +3,12 @@ const c = @import("c");
 
 const gfx = @import("gfx");
 
-const image_zig = @import("image.zig");
-const text_zig = @import("text.zig");
-const types = @import("types.zig");
+const image_zig = @import("image");
+const text_zig = @import("text");
+const types = @import("types");
 const Extent = types.Extent;
-const Event = @import("input.zig").Event;
-const Scene = @import("scene.zig").Scene;
+const Event = @import("scene").input.Event;
+const Scene = @import("scene").Scene;
 
 /// The implementation of a Scene in a resizable SDL3 window with OpenGL ES
 /// 3.0.

@@ -4,20 +4,22 @@
 
 const std = @import("std");
 
-const anim = @import("anime.zig");
+const anim = @import("anime");
 const Corners = @import("gfx").Corners;
-const types = @import("types.zig");
+const types = @import("types");
 const Alignment = types.Alignment;
 const Color = types.Color;
 const Constraint = types.Constraint;
 const Extent = types.Extent;
 const Point = types.Point;
 const Size = types.Size;
-const pass = @import("layout.zig");
-const HandlerKind = @import("node.zig").HandlerKind;
-const Resolved = @import("node.zig").Resolved;
-const Painter = @import("paint.zig").Painter;
-const popup_zig = @import("popup.zig");
+
+const node_zig = @import("base/node.zig");
+const HandlerKind = node_zig.HandlerKind;
+const Resolved = node_zig.Resolved;
+const pass = @import("pass/layout.zig");
+const Painter = @import("pass/paint.zig").Painter;
+const popup_zig = @import("pass/popup.zig");
 
 const mod = @This();
 
@@ -54,15 +56,24 @@ pub fn Container(comptime Children: type, comptime Config: type) type {
             return self.set("cross", value);
         }
 
-        pub fn alignment(self: Self, value: @FieldType(Config, "alignment")) Self {
+        pub fn alignment(
+            self: Self,
+            value: @FieldType(Config, "alignment"),
+        ) Self {
             return self.set("alignment", value);
         }
 
-        pub fn size(self: Self, px: @FieldType(Config, "font_size")) Self {
-            return self.set("font_size", px);
+        pub fn size(
+            self: Self,
+            pixels: @FieldType(Config, "font_size"),
+        ) Self {
+            return self.set("font_size", pixels);
         }
 
-        pub fn color(self: Self, value: @FieldType(Config, "text_color")) Self {
+        pub fn color(
+            self: Self,
+            value: @FieldType(Config, "text_color"),
+        ) Self {
             return self.set("text_color", value);
         }
 
@@ -76,12 +87,15 @@ pub fn Container(comptime Children: type, comptime Config: type) type {
             return self.set("fallback_name", name);
         }
 
-        pub fn lineHeight(self: Self, px: f32) Self {
-            return self.set("line_height", px);
+        pub fn lineHeight(self: Self, pixels: f32) Self {
+            return self.set("line_height", pixels);
         }
 
-        pub fn letterSpacing(self: Self, px: @FieldType(Config, "letter_spacing")) Self {
-            return self.set("letter_spacing", px);
+        pub fn letterSpacing(
+            self: Self,
+            pixels: @FieldType(Config, "letter_spacing"),
+        ) Self {
+            return self.set("letter_spacing", pixels);
         }
 
         pub fn fill(self: Self, value: @FieldType(Config, "fill_color")) Self {
@@ -94,21 +108,24 @@ pub fn Container(comptime Children: type, comptime Config: type) type {
             value: @FieldType(Config, "stroke_color"),
             width: @FieldType(Config, "stroke_width"),
         ) Self {
-            return self.set("stroke_color", value).set("stroke_width", width);
+            return self
+                .set("stroke_color", value)
+                .set("stroke_width", width);
         }
 
-        pub fn radius(self: Self, r: @FieldType(Config, "corner")) Self {
-            return self.set("corner", r);
+        pub fn radius(
+            self: Self,
+            value: @FieldType(Config, "corner"),
+        ) Self {
+            return self.set("corner", value);
         }
 
         pub fn fit(self: Self, how: @FieldType(Config, "fitting")) Self {
             return self.set("fitting", how);
         }
 
-        // What a leaf can be asked outside the tree, such as the width of a
-        // text for a caret. Each exists for the configs that answer it.
-        pub fn measure(self: Self, c: Constraint) Extent {
-            return self.config.measure(c);
+        pub fn measure(self: Self, constraint: Constraint) Extent {
+            return self.config.measure(constraint);
         }
 
         pub fn advance(self: Self) f32 {
@@ -142,7 +159,10 @@ pub fn Container(comptime Children: type, comptime Config: type) type {
 
 /// The view of a config that measures and paints itself.
 pub fn leaf(config: anytype) Container(void, @TypeOf(config)) {
-    return .{ .children = {}, .config = config };
+    return .{
+        .children = {},
+        .config = config,
+    };
 }
 
 /// The children of a container built from the tuple literal `Tuple`. Tuple
@@ -160,6 +180,7 @@ pub fn set(
 ) @TypeOf(view) {
     var next = view;
     @field(next, field) = value;
+
     return next;
 }
 
@@ -189,7 +210,10 @@ pub fn with(
     self: anytype,
     config: anytype,
 ) Wrapped(@TypeOf(self), @TypeOf(config)) {
-    return .{ .children = .{base(self)}, .config = config };
+    return .{
+        .children = .{base(self)},
+        .config = config,
+    };
 }
 
 pub const Insets = struct {
@@ -212,20 +236,33 @@ pub const Insets = struct {
         };
     }
 
-    pub fn measure(insets: Insets, child: anytype, c: Constraint) Extent {
-        const dx = insets.left + insets.right;
-        const dy = insets.top + insets.bottom;
-        const size = pass.measure(child, c.deflate(dx, dy));
-        return c.constrain(.{
-            .width = size.width + dx,
-            .height = size.height + dy,
+    pub fn measure(
+        self: Insets,
+        child: anytype,
+        constraint: Constraint,
+    ) Extent {
+        const horizontal = self.left + self.right;
+        const vertical = self.top + self.bottom;
+        const size = pass.measure(
+            child,
+            constraint.deflate(horizontal, vertical),
+        );
+
+        return constraint.constrain(.{
+            .width = size.width + horizontal,
+            .height = size.height + vertical,
         });
     }
 
-    pub fn layout(insets: Insets, child: anytype, at: Point, _: Extent) void {
+    pub fn layout(
+        self: Insets,
+        child: anytype,
+        at: Point,
+        _: Extent,
+    ) void {
         pass.layout(child, .{
-            .x = at.x + insets.left,
-            .y = at.y + insets.top,
+            .x = at.x + self.left,
+            .y = at.y + self.top,
         });
     }
 };
@@ -234,9 +271,6 @@ pub fn padding(self: anytype, insets: Insets) Wrapped(@TypeOf(self), Insets) {
     return with(self, insets);
 }
 
-// Gives the child the fixed `size`, or one that grows up to `max` where
-// space allows, and places it inside. The child is told to be no smaller
-// than `min`, as far as the space goes.
 const Frame = struct {
     size: Size = .{},
     min: Size = .{},
@@ -245,35 +279,62 @@ const Frame = struct {
 
     fn outer(fixed: ?f32, max: ?f32, high: f32, child: f32) f32 {
         if (fixed) |size| return size;
-        if (max) |size| {
+
+        if (max) |size|
             return if (std.math.isInf(high)) child else @max(child, size);
-        }
+
         return child;
     }
 
-    pub fn measure(f: Frame, child: anytype, c: Constraint) Extent {
+    pub fn measure(
+        self: Frame,
+        child: anytype,
+        constraint: Constraint,
+    ) Extent {
+        const width = self.size.width orelse self.max.width orelse types.inf;
+        const height = self.size.height orelse self.max.height orelse types.inf;
         const max: Extent = .{
-            .width = @min(f.size.width orelse f.max.width orelse types.inf, c.max.width),
-            .height = @min(f.size.height orelse f.max.height orelse types.inf, c.max.height),
+            .width = @min(width, constraint.max.width),
+            .height = @min(height, constraint.max.height),
         };
+
         const size = pass.measure(child, .{
             .min = .{
-                .width = @min(f.min.width orelse 0, max.width),
-                .height = @min(f.min.height orelse 0, max.height),
+                .width = @min(self.min.width orelse 0, max.width),
+                .height = @min(self.min.height orelse 0, max.height),
             },
             .max = max,
         });
-        return c.constrain(.{
-            .width = outer(f.size.width, f.max.width, c.max.width, size.width),
-            .height = outer(f.size.height, f.max.height, c.max.height, size.height),
+
+        return constraint.constrain(.{
+            .width = outer(
+                self.size.width,
+                self.max.width,
+                constraint.max.width,
+                size.width,
+            ),
+            .height = outer(
+                self.size.height,
+                self.max.height,
+                constraint.max.height,
+                size.height,
+            ),
         });
     }
 
-    pub fn layout(f: Frame, child: anytype, at: Point, size: Extent) void {
-        pass.layout(child, f.alignment.place(at, size, child.size));
+    pub fn layout(
+        self: Frame,
+        child: anytype,
+        at: Point,
+        size: Extent,
+    ) void {
+        pass.layout(child, self.alignment.place(at, size, child.size));
     }
 };
 
+/// Gives the view the fixed `size`, or one that grows up to `max` where space
+/// allows, and places it inside. The view is told to be no smaller than
+/// `min`, as far as the space goes.
 pub fn frame(self: anytype, spec: Frame) Wrapped(@TypeOf(self), Frame) {
     return with(self, spec);
 }
@@ -282,10 +343,10 @@ const Offset = struct {
     x: f32,
     y: f32,
 
-    pub fn place(o: Offset, at: Point) Point {
+    pub fn place(self: Offset, at: Point) Point {
         return .{
-            .x = at.x + o.x,
-            .y = at.y + o.y,
+            .x = at.x + self.x,
+            .y = at.y + self.y,
         };
     }
 };
@@ -293,7 +354,10 @@ const Offset = struct {
 /// Moves the view by `x` and `y` from where it is placed, without changing
 /// where the views around it go. The pointer finds it where it is drawn.
 pub fn offset(self: anytype, x: f32, y: f32) Wrapped(@TypeOf(self), Offset) {
-    return with(self, Offset{ .x = x, .y = y });
+    return with(self, Offset{
+        .x = x,
+        .y = y,
+    });
 }
 
 const Flexed = struct { flex: f32 };
@@ -305,35 +369,47 @@ pub fn flex(self: anytype, factor: f32) Wrapped(@TypeOf(self), Flexed) {
 const Fill = struct {
     color: Color,
 
-    pub fn beginPaint(fill: Fill, p: Painter) void {
-        p.fill(.{}, fill.color);
+    pub fn beginPaint(self: Fill, painter: Painter) void {
+        painter.fill(.{}, self.color);
     }
 };
 
-// A config that leaves everything to the passes: the view takes the size and
-// the position of its last child, and a child before it is drawn behind it
-// at its size.
 const Plain = struct {};
 
 fn Backed(comptime Self: type, comptime Back: type) type {
-    return if (Back == Color) Wrapped(Self, Fill) else Container(struct { Back, Base(Self) }, Plain);
+    if (Back == Color) return Wrapped(Self, Fill);
+
+    return Container(struct {
+        Back,
+        Base(Self),
+    }, Plain);
 }
 
 /// `back` is a view to draw behind this one at its size, or a color.
 pub fn bg(self: anytype, back: anytype) Backed(@TypeOf(self), @TypeOf(back)) {
     if (@TypeOf(back) == Color) return with(self, Fill{ .color = back });
-    return .{ .children = .{ back, base(self) }, .config = .{} };
+
+    return .{
+        .children = .{
+            back,
+            base(self),
+        },
+        .config = .{},
+    };
 }
 
 const Clip = struct {
     corners: Corners,
 
-    pub fn beginPaint(clipped: Clip, p: Painter) void {
-        p.canvas.push(.{ .clip = p.box(), .corners = clipped.corners });
+    pub fn beginPaint(self: Clip, painter: Painter) void {
+        painter.canvas.push(.{
+            .clip = painter.box(),
+            .corners = self.corners,
+        });
     }
 
-    pub fn endPaint(_: Clip, p: Painter) void {
-        p.canvas.pop();
+    pub fn endPaint(_: Clip, painter: Painter) void {
+        painter.canvas.pop();
     }
 };
 
@@ -344,12 +420,14 @@ pub fn clip(self: anytype, corners: Corners) Wrapped(@TypeOf(self), Clip) {
 const Opacity = struct {
     value: f32,
 
-    pub fn beginPaint(o: Opacity, p: Painter) void {
-        p.canvas.push(.{ .opacity = std.math.clamp(o.value, 0, 1) });
+    pub fn beginPaint(self: Opacity, painter: Painter) void {
+        painter.canvas.push(.{
+            .opacity = std.math.clamp(self.value, 0, 1),
+        });
     }
 
-    pub fn endPaint(_: Opacity, p: Painter) void {
-        p.canvas.pop();
+    pub fn endPaint(_: Opacity, painter: Painter) void {
+        painter.canvas.pop();
     }
 };
 
@@ -357,10 +435,10 @@ pub fn opacity(self: anytype, value: f32) Wrapped(@TypeOf(self), Opacity) {
     return with(self, Opacity{ .value = value });
 }
 
-fn Handler(comptime kind: HandlerKind, comptime f: anytype) type {
+fn Handler(comptime kind: HandlerKind, comptime func: anytype) type {
     return struct {
         pub const handler_kind = kind;
-        pub const handler = f;
+        pub const handler = func;
     };
 }
 
@@ -463,7 +541,10 @@ fn Popped(
     comptime dismiss: anytype,
     comptime Content: type,
 ) type {
-    return Container(struct { Base(Self), Content }, popup_zig.Popup(cond, dismiss));
+    return Container(struct {
+        Base(Self),
+        Content,
+    }, popup_zig.Popup(cond, dismiss));
 }
 
 /// Shows `content` in front of everything else while `cond` returns true,
@@ -484,8 +565,14 @@ pub fn popup(
     transition: popup_zig.Transition,
 ) Popped(@TypeOf(self), cond, dismiss, @TypeOf(content)) {
     return .{
-        .children = .{ base(self), content },
-        .config = .{ .placement = placement, .transition = transition },
+        .children = .{
+            base(self),
+            content,
+        },
+        .config = .{
+            .placement = placement,
+            .transition = transition,
+        },
     };
 }
 
@@ -497,9 +584,14 @@ fn Animated(comptime Child: type) type {
         /// the animation moves it on.
         constraint: Constraint = .{},
 
-        pub fn measure(self: *@This(), child: anytype, c: Constraint) Extent {
-            self.constraint = c;
-            return pass.measure(child, c);
+        pub fn measure(
+            self: *@This(),
+            child: anytype,
+            constraint: Constraint,
+        ) Extent {
+            self.constraint = constraint;
+
+            return pass.measure(child, constraint);
         }
     };
 }
@@ -510,7 +602,9 @@ pub fn animation(
     self: anytype,
     spec: anim.Animation,
 ) Wrapped(@TypeOf(self), Animated(Base(@TypeOf(self)))) {
-    return with(self, Animated(Base(@TypeOf(self))){ .spec = spec });
+    const Config = Animated(Base(@TypeOf(self)));
+
+    return with(self, Config{ .spec = spec });
 }
 
 /// Gives modifiers to a value that has none, such as a component.

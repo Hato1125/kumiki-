@@ -4,7 +4,7 @@
 const std = @import("std");
 const gfx = @import("gfx");
 
-const types = @import("types.zig");
+const types = @import("types");
 const Extent = types.Extent;
 
 const gpa = std.heap.c_allocator;
@@ -35,6 +35,7 @@ var default_font: ?gfx.Font = null;
 pub fn startup(font: ?[:0]const u8) !void {
     texts = try .init(gpa);
     errdefer shutdown();
+
     default_font = null;
     const path = font orelse return;
     try addFont(path);
@@ -55,7 +56,11 @@ pub fn addFont(path: [:0]const u8) !void {
     const font = try started.loadFont(path, .{});
     const name = try gpa.dupe(u8, std.fs.path.stem(path));
     errdefer gpa.free(name);
-    try loaded_fonts.append(gpa, .{ .name = name, .font = font });
+
+    try loaded_fonts.append(gpa, .{
+        .name = name,
+        .font = font,
+    });
 }
 
 /// What a canvas has to share to draw the layouts made here.
@@ -64,9 +69,9 @@ pub fn system() !*gfx.TextSystem {
 }
 
 fn fontNamed(name: []const u8) ?gfx.Font {
-    for (loaded_fonts.items) |loaded| {
+    for (loaded_fonts.items) |loaded|
         if (std.mem.eql(u8, loaded.name, name)) return loaded.font;
-    }
+
     return null;
 }
 
@@ -82,16 +87,24 @@ pub const Style = struct {
     tracking: f32 = 0,
 };
 
-/// `s` laid out for drawing with `Canvas.text`. A positive `width` wraps
-/// the text at that width. Null when no font can be found for the style.
-/// The layout is only good until the next one is asked for.
-pub fn layout(s: []const u8, style: Style, width: f32) ?*gfx.TextLayout {
+/// `content` laid out for drawing with `Canvas.text`. A positive `width`
+/// wraps the text at that width. Null when no font can be found for the
+/// style. The layout is only good until the next one is asked for.
+pub fn layout(
+    content: []const u8,
+    style: Style,
+    width: f32,
+) ?*gfx.TextLayout {
     const started = system() catch return null;
 
     var fonts: [2]gfx.Font = undefined;
     var count: usize = 0;
     const named = if (style.font) |name| fontNamed(name) else null;
-    const first = if (loaded_fonts.items.len > 0) loaded_fonts.items[0].font else null;
+    const first = if (loaded_fonts.items.len > 0)
+        loaded_fonts.items[0].font
+    else
+        null;
+
     if (named orelse default_font orelse first) |font| {
         fonts[count] = font;
         count += 1;
@@ -103,7 +116,7 @@ pub fn layout(s: []const u8, style: Style, width: f32) ?*gfx.TextLayout {
         }
     }
 
-    return started.cached(s, .{
+    return started.cached(content, .{
         .fonts = fonts[0..count],
         .size = style.size,
         .line_height = style.line_height,
@@ -114,8 +127,9 @@ pub fn layout(s: []const u8, style: Style, width: f32) ?*gfx.TextLayout {
 
 /// A positive `width` wraps the text at that width. The width leaves out the
 /// spaces at the end of a line.
-pub fn measure(s: []const u8, style: Style, width: f32) Extent {
-    const laid = layout(s, style, width) orelse return .{};
+pub fn measure(content: []const u8, style: Style, width: f32) Extent {
+    const laid = layout(content, style, width) orelse return .{};
+
     return .{
         // A word longer than the line is not broken.
         .width = if (width > 0) @min(laid.width, width) else laid.width,
@@ -123,17 +137,21 @@ pub fn measure(s: []const u8, style: Style, width: f32) Extent {
     };
 }
 
-/// The distance from the start of `s` to where a character after it would go.
-/// Unlike the width that `measure` gives, it counts the spaces at the end.
-pub fn advance(s: []const u8, style: Style) f32 {
-    if (s.len == 0) return 0;
-    const laid = layout(s, style, 0) orelse return 0;
-    return laid.caret(s.len).x;
+/// The distance from the start of `content` to where a character after it
+/// would go. Unlike the width that `measure` gives, it counts the spaces at
+/// the end.
+pub fn advance(content: []const u8, style: Style) f32 {
+    if (content.len == 0) return 0;
+
+    const laid = layout(content, style, 0) orelse return 0;
+
+    return laid.caret(content.len).x;
 }
 
-/// The position in `s` whose advance is nearest to `x`: a byte offset between
-/// two characters.
-pub fn indexAt(s: []const u8, style: Style, x: f32) usize {
-    const laid = layout(s, style, 0) orelse return 0;
+/// The position in `content` whose advance is nearest to `x`: a byte offset
+/// between two characters.
+pub fn indexAt(content: []const u8, style: Style, x: f32) usize {
+    const laid = layout(content, style, 0) orelse return 0;
+
     return laid.indexAt(x, 0);
 }

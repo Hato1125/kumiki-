@@ -40,7 +40,7 @@ pub const Tasks = struct {
     /// Runs `work(args...)` on a new thread, for `key` to be handed what it
     /// returns.
     pub fn spawn(
-        tasks: *Tasks,
+        self: *Tasks,
         tag: u32,
         comptime work: anytype,
         args: std.meta.ArgsTuple(@TypeOf(work)),
@@ -55,21 +55,22 @@ pub const Tasks = struct {
             fn run(job: *@This()) void {
                 job.result = @call(.auto, work, job.args);
                 job.task.done.store(true, .release);
-                if (job.tasks.waker.load(.acquire)) |waker| {
+
+                if (job.tasks.waker.load(.acquire)) |waker|
                     job.tasks.wake(waker);
-                }
             }
 
             fn destroy(task: *Task, gpa: std.mem.Allocator) void {
                 gpa.destroy(@as(*@This(), @fieldParentPtr("task", task)));
             }
         };
-        const job = tasks.gpa.create(Job) catch @panic("out of memory");
+
+        const job = self.gpa.create(Job) catch @panic("out of memory");
         job.* = .{
-            .tasks = tasks,
+            .tasks = self,
             .args = args,
             .task = .{
-                .next = tasks.first,
+                .next = self.first,
                 .tag = tag,
                 .key = key,
                 .kind = keyOf(@TypeOf(job.result)),
@@ -77,37 +78,40 @@ pub const Tasks = struct {
                 .destroy = Job.destroy,
             },
         };
-        job.task.thread = std.Thread.spawn(.{}, Job.run, .{job}) catch @panic("cannot start a thread");
-        tasks.first = &job.task;
+
+        job.task.thread = std.Thread.spawn(.{}, Job.run, .{job}) catch
+            @panic("cannot start a thread");
+        self.first = &job.task;
     }
 
     /// Has `key` called for `tag` at the time `at`. A call of it that still
     /// waits for the same tag gives way.
     pub fn after(
-        tasks: *Tasks,
+        self: *Tasks,
         tag: u32,
         at: f64,
         key: *const anyopaque,
     ) void {
-        var link = &tasks.first;
+        var link = &self.first;
         while (link.*) |task| {
             if (task.thread == null and task.tag == tag and task.key == key) {
                 link.* = task.next;
-                task.destroy(task, tasks.gpa);
+                task.destroy(task, self.gpa);
             } else {
                 link = &task.next;
             }
         }
-        const task = tasks.gpa.create(Task) catch @panic("out of memory");
+
+        const task = self.gpa.create(Task) catch @panic("out of memory");
         task.* = .{
-            .next = tasks.first,
+            .next = self.first,
             .tag = tag,
             .key = key,
             .kind = keyOf(void),
             .due = at,
             .destroy = destroyCall,
         };
-        tasks.first = task;
+        self.first = task;
     }
 
     fn destroyCall(task: *Task, gpa: std.mem.Allocator) void {
@@ -115,38 +119,49 @@ pub const Tasks = struct {
     }
 
     /// When the first of the calls that wait is made, or infinity.
-    pub fn due(tasks: *const Tasks) f64 {
+    pub fn due(self: *const Tasks) f64 {
         var first = std.math.inf(f64);
-        var next = tasks.first;
+        var next = self.first;
+
         while (next) |task| : (next = task.next) {
             if (task.thread == null) first = @min(first, task.due);
         }
+
         return first;
     }
 
     /// Takes out a function that has ended, or a call that was due before
     /// `now`. A thread is joined first, because it still reads the task after
     /// it set `done`. The caller reads the result and then calls `destroy`.
-    pub fn take(tasks: *Tasks, now: f64) ?*Task {
-        var link = &tasks.first;
+    pub fn take(self: *Tasks, now: f64) ?*Task {
+        var link = &self.first;
+
         while (link.*) |task| : (link = &task.next) {
-            const ready = if (task.thread == null) task.due < now else task.done.load(.acquire);
+            const ready = if (task.thread == null)
+                task.due < now
+            else
+                task.done.load(.acquire);
             if (!ready) continue;
+
             link.* = task.next;
             if (task.thread) |thread| thread.join();
+
             return task;
         }
+
         return null;
     }
 
     /// Waits for the functions that still run and drops what they return,
     /// and the calls that wait.
-    pub fn deinit(tasks: *Tasks) void {
-        tasks.waker.store(null, .release);
-        while (tasks.first) |task| {
-            tasks.first = task.next;
+    pub fn deinit(self: *Tasks) void {
+        self.waker.store(null, .release);
+
+        while (self.first) |task| {
+            self.first = task.next;
             if (task.thread) |thread| thread.join();
-            task.destroy(task, tasks.gpa);
+
+            task.destroy(task, self.gpa);
         }
     }
 };

@@ -1,4 +1,4 @@
-const mod = @import("../mod.zig");
+const mod = @import("scene").mod;
 
 /// The config of a spacer, which takes the free space of a row or column.
 pub const Spacer = struct { flex: f32 = 1 };
