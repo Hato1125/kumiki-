@@ -10,16 +10,16 @@ const Extent = types.Extent;
 const Event = @import("scene").input.Event;
 const Scene = @import("scene").Scene;
 
-/// The implementation of a Scene in a resizable SDL3 window with OpenGL ES
-/// 3.0.
+/// The implementation of a Scene in a resizable SDL3 window with Vulkan
+/// 1.3.
 pub const Window = struct {
     window: *c.SDL_Window,
-    gl: c.SDL_GLContext,
     // On the heap, because the images remember which canvas holds them.
     canvas: *gfx.Canvas,
     // The scale the scene measured the frame at, which the frame is drawn
     // at too, even if the window has moved to another display since.
     density: f32 = 1,
+    synced: bool = true,
 
     /// `font` is the TTF or OTF file of the text that names no font, and
     /// `fonts` are more files for the text that asks for them by name.
@@ -42,14 +42,11 @@ pub const Window = struct {
         errdefer text_zig.shutdown();
         for (options.fonts) |path| try text_zig.addFont(path);
 
-        _ = c.SDL_GL_SetAttribute(c.SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-        _ = c.SDL_GL_SetAttribute(c.SDL_GL_CONTEXT_MINOR_VERSION, 0);
-        _ = c.SDL_GL_SetAttribute(c.SDL_GL_CONTEXT_PROFILE_MASK, c.SDL_GL_CONTEXT_PROFILE_ES);
         const window = c.SDL_CreateWindow(
             options.title,
             @intCast(options.width),
             @intCast(options.height),
-            c.SDL_WINDOW_OPENGL | c.SDL_WINDOW_HIGH_PIXEL_DENSITY | c.SDL_WINDOW_RESIZABLE,
+            c.SDL_WINDOW_VULKAN | c.SDL_WINDOW_HIGH_PIXEL_DENSITY | c.SDL_WINDOW_RESIZABLE,
         ) orelse return error.CreateWindow;
         errdefer c.SDL_DestroyWindow(window);
 
@@ -64,20 +61,22 @@ pub const Window = struct {
             std.math.lossyCast(c_int, options.max.height),
         );
 
-        const gl = c.SDL_GL_CreateContext(window) orelse return error.CreateGlContext;
-        errdefer _ = c.SDL_GL_DestroyContext(gl);
-        _ = c.SDL_GL_MakeCurrent(window, gl);
-        _ = c.SDL_GL_SetSwapInterval(1);
+        var extension_count: u32 = 0;
+        const extensions = c.SDL_Vulkan_GetInstanceExtensions(&extension_count) orelse
+            return error.VulkanExtensions;
 
         const canvas = try allocator.create(gfx.Canvas);
         errdefer allocator.destroy(canvas);
         canvas.* = try .init(allocator, .{
-            .loader = c.SDL_GL_GetProcAddress,
+            .surface = .{
+                .extensions = @ptrCast(extensions[0..extension_count]),
+                .context = window,
+                .create = createSurface,
+            },
             .texts = try text_zig.system(),
         });
         return .{
             .window = window,
-            .gl = gl,
             .canvas = canvas,
         };
     }
@@ -87,7 +86,6 @@ pub const Window = struct {
         image_zig.release();
         w.canvas.deinit();
         allocator.destroy(w.canvas);
-        _ = c.SDL_GL_DestroyContext(w.gl);
         c.SDL_DestroyWindow(w.window);
         image_zig.shutdown();
         text_zig.shutdown();
@@ -170,13 +168,11 @@ pub const Window = struct {
     }
 
     pub fn vsync(w: *Window, on: bool) void {
-        _ = c.SDL_GL_MakeCurrent(w.window, w.gl);
-        _ = c.SDL_GL_SetSwapInterval(if (on) 1 else 0);
+        w.synced = on;
     }
 
     /// A minimized window has nothing to draw to.
     pub fn begin(w: *Window) !?*gfx.Canvas {
-        _ = c.SDL_GL_MakeCurrent(w.window, w.gl);
         const pixels = pixelSize(w.window);
         if (pixels[0] == 0 or pixels[1] == 0) return null;
         w.canvas.begin(.{
@@ -184,13 +180,20 @@ pub const Window = struct {
             .height = pixels[1],
             .scale = w.density,
             .background = .transparent,
+            .vsync = w.synced,
         });
         return w.canvas;
     }
 
     pub fn end(w: *Window) !void {
-        w.canvas.end();
-        _ = c.SDL_GL_SwapWindow(w.window);
+        try w.canvas.end();
+    }
+
+    fn createSurface(context: ?*anyopaque, instance: *anyopaque) u64 {
+        const window: *c.SDL_Window = @ptrCast(context.?);
+        var surface: c.VkSurfaceKHR = null;
+        if (!c.SDL_Vulkan_CreateSurface(window, @ptrCast(instance), null, &surface)) return 0;
+        return @intFromPtr(surface);
     }
 
     fn pixelSize(window: *c.SDL_Window) [2]u32 {
