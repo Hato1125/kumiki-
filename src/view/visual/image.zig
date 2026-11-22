@@ -1,13 +1,13 @@
 const std = @import("std");
 
 const gfx = @import("gfx");
-
 const Image = @import("image").Image;
 const types = @import("types");
 const Constraint = types.Constraint;
 const Extent = types.Extent;
-const mod = @import("scene").mod;
-const Painter = @import("scene").paint.Painter;
+const scene = @import("scene");
+const mod = scene.mod;
+const Painter = scene.paint.Painter;
 
 /// How an image goes into a box of another shape: stretched over it, as
 /// large as fits inside, or as small as covers it with the rest cut off.
@@ -20,30 +20,45 @@ pub const Picture = struct {
     source: ?Image,
     fitting: ?Fit = null,
 
-    pub fn measure(picture: Picture, c: Constraint) Extent {
-        const natural: Extent = if (picture.source) |source| source.size() else .{};
-        if (picture.fitting != null) return c.constrain(.{
-            .width = if (std.math.isInf(c.max.width)) natural.width else c.max.width,
-            .height = if (std.math.isInf(c.max.height)) natural.height else c.max.height,
-        });
-        if (natural.width <= 0 or natural.height <= 0) return c.min;
-        const scale = @min(1, c.max.width / natural.width, c.max.height / natural.height);
-        return c.constrain(.{
+    pub fn measure(self: Picture, constraint: Constraint) Extent {
+        const max = constraint.max;
+        const natural: Extent = if (self.source) |source|
+            source.size()
+        else
+            .{};
+
+        if (self.fitting != null) {
+            return constraint.constrain(.{
+                .width = if (std.math.isInf(max.width)) natural.width else max.width,
+                .height = if (std.math.isInf(max.height)) natural.height else max.height,
+            });
+        }
+
+        if (natural.width <= 0 or natural.height <= 0) return constraint.min;
+
+        const scale = @min(
+            1,
+            max.width / natural.width,
+            max.height / natural.height,
+        );
+
+        return constraint.constrain(.{
             .width = natural.width * scale,
             .height = natural.height * scale,
         });
     }
 
-    pub fn paint(picture: Picture, p: Painter) void {
-        const source = picture.source orelse return;
-        const uploaded = source.on(p.canvas) orelse return;
-        p.canvas.image(.{
+    pub fn paint(self: Picture, painter: Painter) void {
+        const source = self.source orelse return;
+        const uploaded = source.on(painter.canvas) orelse return;
+
+        painter.canvas.image(.{
             .image = uploaded,
-            .x = p.bounds.x,
-            .y = p.bounds.y,
-            .width = p.bounds.w,
-            .height = p.bounds.h,
-            .fit = picture.fitting orelse .contain,
+            .x = painter.bounds.x,
+            .y = painter.bounds.y,
+            .width = painter.bounds.w,
+            .height = painter.bounds.h,
+            .fit = self.fitting orelse .contain,
         });
     }
 };

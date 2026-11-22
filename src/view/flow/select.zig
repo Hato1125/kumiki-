@@ -2,20 +2,26 @@ const types = @import("types");
 const Constraint = types.Constraint;
 const Extent = types.Extent;
 const Point = types.Point;
-const pass = @import("scene").layout;
-const mod = @import("scene").mod;
-const ReturnOf = @import("scene").node.ReturnOf;
+const scene = @import("scene");
+const pass = scene.layout;
+const mod = scene.mod;
+const ReturnOf = scene.node.ReturnOf;
 
 /// The config of a `select`: shows the child that stands for the value of the
 /// enum that `cond_fn` returns, in the order of its fields. All children are
 /// kept, so switching back and forth keeps their state.
 pub fn Select(comptime cond_fn: anytype) type {
     const Choice = ReturnOf(cond_fn);
-    if (@typeInfo(Choice) != .@"enum" or @typeInfo(Choice).@"enum".mode != .exhaustive) {
-        @compileError("select takes a function that returns an exhaustive enum, not " ++
-            @typeName(Choice) ++ "; use `when` for a bool");
+    const info = @typeInfo(Choice);
+
+    if (info != .@"enum" or info.@"enum".mode != .exhaustive) {
+        @compileError(
+            "select takes a function that returns an exhaustive enum, not " ++
+                @typeName(Choice) ++ "; use `when` for a bool",
+        );
     }
-    const values = @typeInfo(Choice).@"enum".field_values;
+
+    const values = info.@"enum".field_values;
 
     return struct {
         active: Choice = @fromBackingInt(@intCast(values[0])),
@@ -25,21 +31,34 @@ pub fn Select(comptime cond_fn: anytype) type {
         pub const cond = cond_fn;
         pub const count = values.len;
 
-        pub fn shows(s: Self, comptime child: usize) bool {
-            return s.active == @as(Choice, @fromBackingInt(@intCast(values[child])));
+        pub fn shows(self: Self, comptime child: usize) bool {
+            const choice: Choice = @fromBackingInt(@intCast(values[child]));
+
+            return self.active == choice;
         }
 
-        pub fn measureAll(s: Self, children: anytype, c: Constraint) Extent {
+        pub fn measureAll(
+            self: Self,
+            children: anytype,
+            constraint: Constraint,
+        ) Extent {
             inline for (0..children.len) |i| {
-                if (s.shows(i)) return pass.measure(&children[i], c);
+                if (self.shows(i))
+                    return pass.measure(&children[i], constraint);
             }
+
             unreachable;
         }
 
-        pub fn layoutAll(s: Self, children: anytype, at: Point, _: Extent) void {
-            inline for (0..children.len) |i| {
-                if (s.shows(i)) return pass.layout(&children[i], at);
-            }
+        pub fn layoutAll(
+            self: Self,
+            children: anytype,
+            at: Point,
+            _: Extent,
+        ) void {
+            inline for (0..children.len) |i|
+                if (self.shows(i)) return pass.layout(&children[i], at);
+
             unreachable;
         }
     };
@@ -54,8 +73,16 @@ pub fn select(
     children: anytype,
 ) mod.Container(mod.Runtime(@TypeOf(children)), Select(cond)) {
     const Config = Select(cond);
+
     if (children.len != Config.count) {
-        @compileError("select has a different number of children than the fields of the enum");
+        @compileError(
+            "select has a different number of children than the fields " ++
+                "of the enum",
+        );
     }
-    return .{ .children = children, .config = .{} };
+
+    return .{
+        .children = children,
+        .config = .{},
+    };
 }

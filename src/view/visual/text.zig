@@ -5,8 +5,9 @@ const types = @import("types");
 const Color = types.Color;
 const Constraint = types.Constraint;
 const Extent = types.Extent;
-const mod = @import("scene").mod;
-const Painter = @import("scene").paint.Painter;
+const scene = @import("scene");
+const mod = scene.mod;
+const Painter = scene.paint.Painter;
 
 /// The config of a text. Its settings are methods of the container.
 pub const Text = struct {
@@ -41,22 +42,29 @@ pub const Text = struct {
     }
 
     /// Wraps when the text is wider than the space offered.
-    pub fn measure(self: Text, c: Constraint) Extent {
+    pub fn measure(self: Text, constraint: Constraint) Extent {
+        const max_width = constraint.max.width;
         const natural = text_zig.measure(self.content, self.style(), 0);
-        if (std.math.isInf(c.max.width) or natural.width <= c.max.width) {
-            return c.constrain(natural);
-        }
-        return c.constrain(text_zig.measure(self.content, self.style(), c.max.width));
+        if (std.math.isInf(max_width) or natural.width <= max_width)
+            return constraint.constrain(natural);
+
+        const wrapped = text_zig.measure(self.content, self.style(), max_width);
+
+        return constraint.constrain(wrapped);
     }
 
-    pub fn paint(self: Text, p: Painter) void {
+    pub fn paint(self: Text, painter: Painter) void {
         if (self.content.len == 0 or self.text_color.a == 0) return;
+
+        const bounds = painter.bounds;
         const natural = text_zig.measure(self.content, self.style(), 0);
-        const wrap = if (natural.width > p.bounds.w) p.bounds.w else 0;
-        const laid = text_zig.layout(self.content, self.style(), wrap) orelse return;
-        p.canvas.text(.{
-            .x = p.bounds.x,
-            .y = p.bounds.y,
+        const wrap = if (natural.width > bounds.w) bounds.w else 0;
+        const laid = text_zig.layout(self.content, self.style(), wrap) orelse
+            return;
+
+        painter.canvas.text(.{
+            .x = bounds.x,
+            .y = bounds.y,
             .layout = laid,
             .color = self.text_color,
         });
