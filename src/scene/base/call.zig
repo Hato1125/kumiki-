@@ -1,7 +1,9 @@
 const std = @import("std");
 
+const types = @import("types");
+const Constraint = types.Constraint;
+
 const Context = @import("cx.zig");
-const Constraint = @import("types").Constraint;
 const node_zig = @import("node.zig");
 const ReturnOf = node_zig.ReturnOf;
 const State = node_zig.State;
@@ -16,10 +18,10 @@ pub const Source = struct {
     given: bool = false,
 };
 
-pub fn Pointee(comptime P: type) type {
-    return switch (@typeInfo(P)) {
+pub fn Pointee(comptime Param: type) type {
+    return switch (@typeInfo(Param)) {
         .pointer => |pointer| pointer.child,
-        else => P,
+        else => Param,
     };
 }
 
@@ -28,14 +30,15 @@ fn WidgetOf(comptime Owner: type) type {
 }
 
 /// `Owners` holds pointers to the nodes of the enclosing components, the
-/// outermost first. The nearest component of type `P`, or pointed to by `P`,
-/// wins. When there is none, the value comes from the nearest component that
-/// shares a field of that type with `pub const shares = .field_name` or
-/// provides that type, which lets components share a value, such as a theme,
-/// without knowing who holds it.
-pub fn find(comptime Owners: type, comptime P: type) ?Source {
-    const T = Pointee(P);
+/// outermost first. The nearest component of type `Param`, or pointed to by
+/// `Param`, wins. When there is none, the value comes from the nearest
+/// component that shares a field of that type with
+/// `pub const shares = .field_name` or provides that type, which lets
+/// components share a value, such as a theme, without knowing who holds it.
+pub fn find(comptime Owners: type, comptime Param: type) ?Source {
+    const T = Pointee(Param);
     const owners = @typeInfo(Owners).@"struct".field_types;
+
     var i = owners.len;
     while (i > 0) {
         i -= 1;
@@ -56,6 +59,7 @@ pub fn find(comptime Owners: type, comptime P: type) ?Source {
                 };
             }
         }
+
         if (node_zig.provides(Widget) and node_zig.Provided(Widget) == T) {
             return .{
                 .owner = i,
@@ -63,48 +67,51 @@ pub fn find(comptime Owners: type, comptime P: type) ?Source {
             };
         }
     }
+
     return null;
 }
 
-pub fn source(comptime Owners: type, comptime P: type) Source {
-    return find(Owners, P) orelse
+pub fn source(comptime Owners: type, comptime Param: type) Source {
+    return find(Owners, Param) orelse
         @compileError("no enclosing component is, shares or provides a " ++
-            @typeName(Pointee(P)) ++ " for this parameter");
+            @typeName(Pointee(Param)) ++ " for this parameter");
 }
 
-/// Whether a parameter of type `P` is filled in from the owners. One that is
-/// not stands for the event.
-pub fn fills(comptime Owners: type, comptime P: type) bool {
-    return P == Context or P == Constraint or isCallback(P) or find(Owners, P) != null;
+/// Whether a parameter of type `Param` is filled in from the owners. One that
+/// is not stands for the event.
+pub fn fills(comptime Owners: type, comptime Param: type) bool {
+    if (Param == Context or Param == Constraint) return true;
+
+    return isCallback(Param) or find(Owners, Param) != null;
 }
 
 /// A function that a component is given when it is written in a view, for the
-/// component to call later: `f` is a function, or `{}` for none. A function
+/// component to call later: `func` is a function, or `{}` for none. A function
 /// of the component receives it by declaring a parameter of this type and
-/// runs it with `call`. The parameters of `f` are filled in by type as if it
-/// were given to a modifier at the place of the component, and the components
-/// it receives as mutable pointers are built again.
-pub fn Callback(comptime f: anytype) type {
+/// runs it with `call`. The parameters of `func` are filled in by type as if
+/// it were given to a modifier at the place of the component, and the
+/// components it receives as mutable pointers are built again.
+pub fn Callback(comptime func: anytype) type {
     return struct {
         owners: *const anyopaque = undefined,
         state: *const State = undefined,
         run: *const fn (*const anyopaque, *const State) void = undefined,
 
-        pub const callee = f;
+        pub const callee = func;
 
         pub fn call(given: @This()) void {
-            if (@TypeOf(f) != void) given.run(given.owners, given.state);
+            if (@TypeOf(func) != void) given.run(given.owners, given.state);
         }
     };
 }
 
-fn isCallback(comptime P: type) bool {
-    return @typeInfo(P) == .@"struct" and @hasDecl(P, "callee");
+fn isCallback(comptime Param: type) bool {
+    return @typeInfo(Param) == .@"struct" and @hasDecl(Param, "callee");
 }
 
-// The owners of the place where the innermost of `Owners` is written.
 fn Outer(comptime Owners: type) type {
     const field_types = @typeInfo(Owners).@"struct".field_types;
+
     return @Tuple(field_types[0 .. field_types.len - 1]);
 }
 
@@ -114,17 +121,21 @@ pub fn ownersIn(
     owners: anytype,
 ) OwnersIn(@TypeOf(node), @TypeOf(owners)) {
     if (comptime !isComponent(@TypeOf(node.widget))) return owners;
+
     return owners ++ .{node};
 }
 
-fn OwnersIn(comptime N: type, comptime Owners: type) type {
-    if (!isComponent(WidgetOf(N))) return Owners;
-    return @Tuple(@typeInfo(Owners).@"struct".field_types ++ .{N});
+fn OwnersIn(comptime NodePtr: type, comptime Owners: type) type {
+    if (!isComponent(WidgetOf(NodePtr))) return Owners;
+
+    return @Tuple(@typeInfo(Owners).@"struct".field_types ++ .{NodePtr});
 }
 
-fn bind(comptime P: type, owners: anytype, state: *const State) P {
-    if (@TypeOf(P.callee) == void) return .{};
+fn bind(comptime Param: type, owners: anytype, state: *const State) Param {
+    if (@TypeOf(Param.callee) == void) return .{};
+
     const Owners = @TypeOf(owners.*);
+
     return .{
         .owners = owners,
         .state = state,
@@ -133,24 +144,26 @@ fn bind(comptime P: type, owners: anytype, state: *const State) P {
                 const inner: *const Owners = @ptrCast(@alignCast(erased));
                 var outer: Outer(Owners) = undefined;
                 inline for (0..outer.len) |i| outer[i] = inner.*[i];
-                invoke(P.callee, outer, shared, {});
-                markTargets(P.callee, outer);
+
+                invoke(Param.callee, outer, shared, {});
+                markTargets(Param.callee, outer);
             }
         }.run,
     };
 }
 
 fn argument(
-    comptime P: type,
+    comptime Param: type,
     owners: anytype,
     state: *const State,
     event: anytype,
-) P {
-    if (P == Context) {
-        if (owners.len == 0) {
+) Param {
+    if (Param == Context) {
+        if (owners.len == 0)
             @compileError("ui.Context is only available inside a component");
-        }
+
         const node = owners.*[owners.len - 1];
+
         return .{
             .id = node.id,
             .state = state,
@@ -159,33 +172,48 @@ fn argument(
             .size = node.size,
         };
     }
-    if (P == Constraint) {
+    if (Param == Constraint) {
         if (owners.len == 0) {
-            @compileError("ui.Constraint is only available inside a component");
+            @compileError(
+                "ui.Constraint is only available inside a component",
+            );
         }
+
         const node = owners.*[owners.len - 1];
         node.read = node.constraint;
+
         return node.constraint;
     }
-    if (P == @TypeOf(event)) return event;
-    if (comptime isCallback(P)) return bind(P, owners, state);
 
-    const from = comptime source(@TypeOf(owners.*), P);
-    const pointer = comptime @typeInfo(P) == .pointer;
+    if (Param == @TypeOf(event)) return event;
+    if (comptime isCallback(Param)) return bind(Param, owners, state);
+
+    const from = comptime source(@TypeOf(owners.*), Param);
+    const pointer = comptime @typeInfo(Param) == .pointer;
+
     if (comptime from.given) {
-        if (comptime pointer and !@typeInfo(P).pointer.attrs.@"const") {
-            @compileError("a " ++ @typeName(Pointee(P)) ++ " is provided, " ++
-                "so it is received by value or as a const pointer");
+        if (comptime pointer and !@typeInfo(Param).pointer.attrs.@"const") {
+            @compileError(
+                "a " ++ @typeName(Pointee(Param)) ++ " is provided, " ++
+                    "so it is received by value or as a const pointer",
+            );
         }
+
         const given = &owners.*[from.owner].given;
+
         return if (pointer) given else given.*;
     }
+
     const widget = &owners.*[from.owner].widget;
-    const value = if (comptime from.field) |name| &@field(widget, name) else widget;
+    const value = if (comptime from.field) |name|
+        &@field(widget, name)
+    else
+        widget;
+
     return if (pointer) value else value.*;
 }
 
-/// Calls `f`, filling each parameter by its type: a component type, or a
+/// Calls `func`, filling each parameter by its type: a component type, or a
 /// pointer to one, receives the nearest enclosing component of that type, any
 /// other type receives what the nearest component that shares or provides one
 /// has of it, ui.Context receives the Context of the nearest component,
@@ -193,31 +221,35 @@ fn argument(
 /// `event` receives the event being handled. A component whose functions
 /// receive ui.Constraint is built again when it is measured with another.
 pub fn invoke(
-    comptime f: anytype,
+    comptime func: anytype,
     owners: anytype,
     state: *const State,
     event: anytype,
-) ReturnOf(f) {
-    var args: std.meta.ArgsTuple(@TypeOf(f)) = undefined;
-    inline for (@typeInfo(@TypeOf(f)).@"fn".param_types, 0..) |param_type, i| {
-        const P = param_type orelse
+) ReturnOf(func) {
+    var args: std.meta.ArgsTuple(@TypeOf(func)) = undefined;
+    const params = @typeInfo(@TypeOf(func)).@"fn".param_types;
+
+    inline for (params, 0..) |param_type, i| {
+        const Param = param_type orelse
             @compileError("parameters must have concrete types");
-        args[i] = argument(P, &owners, state, event);
+        args[i] = argument(Param, &owners, state, event);
     }
-    return @call(.auto, f, args);
+
+    return @call(.auto, func, args);
 }
 
 /// A component received as a mutable pointer may have been changed, so it and
 /// everything inside it are built again. The same goes for the component
 /// sharing a field received as a mutable pointer. A pointer that no owner
 /// fills in is the event, such as the result of a background function.
-pub fn markTargets(comptime f: anytype, owners: anytype) void {
-    inline for (@typeInfo(@TypeOf(f)).@"fn".param_types) |param_type| {
-        const P = param_type.?;
-        if (comptime @typeInfo(P) == .pointer and !@typeInfo(P).pointer.attrs.@"const") {
-            if (comptime find(@TypeOf(owners), P)) |from| {
+pub fn markTargets(comptime func: anytype, owners: anytype) void {
+    inline for (@typeInfo(@TypeOf(func)).@"fn".param_types) |param_type| {
+        const Param = param_type.?;
+        const info = @typeInfo(Param);
+
+        if (comptime info == .pointer and !info.pointer.attrs.@"const") {
+            if (comptime find(@TypeOf(owners), Param)) |from|
                 markAll(owners[from.owner]);
-            }
         }
     }
 }

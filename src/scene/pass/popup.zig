@@ -6,22 +6,23 @@
 const std = @import("std");
 
 const anim = @import("anime");
-const call = @import("../base/call.zig");
-const invoke = call.invoke;
-const Target = @import("paint.zig").Target;
-const input = @import("input.zig");
-const pass = @import("layout.zig");
-const node_zig = @import("../base/node.zig");
-const State = node_zig.State;
-const each = node_zig.each;
-const isPopup = node_zig.isPopup;
-const painter = @import("paint.zig");
-const markTargets = call.markTargets;
 const types = @import("types");
 const Alignment = types.Alignment;
 const Constraint = types.Constraint;
 const Extent = types.Extent;
 const Point = types.Point;
+
+const call = @import("../base/call.zig");
+const invoke = call.invoke;
+const markTargets = call.markTargets;
+const node_zig = @import("../base/node.zig");
+const State = node_zig.State;
+const each = node_zig.each;
+const isPopup = node_zig.isPopup;
+const input = @import("input.zig");
+const pass = @import("layout.zig");
+const painter = @import("paint.zig");
+const Target = painter.Target;
 
 /// Where a popup goes: its point `to` lies on the point `from` of the view it
 /// belongs to, moved by `offset`. A popup that would leave the window that
@@ -66,20 +67,29 @@ pub fn Popup(comptime cond_fn: anytype, comptime dismiss_fn: anytype) type {
 
         /// Takes the settings of a popup that a function returned, and keeps
         /// how far this one has come.
-        pub fn adopt(p: *Self, next: Self) void {
-            p.placement = next.placement;
-            p.transition = next.transition;
+        pub fn adopt(self: *Self, next: Self) void {
+            self.placement = next.placement;
+            self.transition = next.transition;
         }
 
-        pub fn shows(p: Self, comptime child: usize) bool {
-            return child == 0 or p.active;
+        pub fn shows(self: Self, comptime child: usize) bool {
+            return child == 0 or self.active;
         }
 
-        pub fn measureAll(_: Self, children: anytype, c: Constraint) Extent {
-            return pass.measure(&children[0], c);
+        pub fn measureAll(
+            _: Self,
+            children: anytype,
+            constraint: Constraint,
+        ) Extent {
+            return pass.measure(&children[0], constraint);
         }
 
-        pub fn layoutAll(_: Self, children: anytype, at: Point, _: Extent) void {
+        pub fn layoutAll(
+            _: Self,
+            children: anytype,
+            at: Point,
+            _: Extent,
+        ) void {
             pass.layout(&children[0], at);
         }
     };
@@ -93,17 +103,21 @@ fn pops(comptime N: type) bool {
 /// built.
 pub fn advance(node: anytype, state: *State) void {
     if (comptime !pops(@TypeOf(node.*))) return;
+
     if (comptime isPopup(@TypeOf(node.widget))) {
         const popup = &node.widget;
         const transition = popup.transition;
         const target: f32 = if (popup.active) 1 else 0;
+
         popup.grown.retarget(transition.grow, target, state.now);
         popup.faded.retarget(transition.fade, target, state.now);
         popup.grown.finish(transition.grow, state.now);
         popup.faded.finish(transition.fade, state.now);
         popup.visible = popup.active or popup.faded.running;
+
         if (popup.grown.running or popup.faded.running) state.animating = true;
     }
+
     _ = each(node, .all, advance, .{state});
 }
 
@@ -112,8 +126,6 @@ const Side = struct {
     to: f32,
 };
 
-// Where a popup of length `length` begins along one axis, and which of its
-// points meets the view then. `start` and `extent` are those of the view.
 fn along(
     start: f32,
     extent: f32,
@@ -124,23 +136,38 @@ fn along(
     window: f32,
 ) Side {
     const asked = start + extent * from - length * to + offset;
-    if (asked >= 0 and asked + length <= window) return .{ .at = asked, .to = to };
+    if (asked >= 0 and asked + length <= window) {
+        return .{
+            .at = asked,
+            .to = to,
+        };
+    }
+
     const mirrored = start + extent * (1 - from) - length * (1 - to) - offset;
     if (mirrored >= 0 and mirrored + length <= window) {
-        return .{ .at = mirrored, .to = 1 - to };
+        return .{
+            .at = mirrored,
+            .to = 1 - to,
+        };
     }
-    return .{ .at = std.math.clamp(asked, 0, @max(0, window - length)), .to = to };
+
+    return .{
+        .at = std.math.clamp(asked, 0, @max(0, window - length)),
+        .to = to,
+    };
 }
 
 /// Measures and places what the popups show, once everything else has its
 /// place. A popup may be as large as the window.
 pub fn place(node: anytype, window: Extent) void {
     if (comptime !pops(@TypeOf(node.*))) return;
+
     if (comptime isPopup(@TypeOf(node.widget))) {
         if (node.widget.visible) {
             const placement = node.widget.placement;
             const content = &node.children[1];
             const size = pass.measure(content, .{ .max = window });
+
             const across = along(
                 node.offset.x,
                 node.size.width,
@@ -159,26 +186,38 @@ pub fn place(node: anytype, window: Extent) void {
                 placement.offset.y,
                 window.height,
             );
-            node.widget.origin = .{ .x = across.to, .y = down.to };
-            pass.layout(content, .{ .x = across.at, .y = down.at });
+
+            node.widget.origin = .{
+                .x = across.to,
+                .y = down.to,
+            };
+            pass.layout(content, .{
+                .x = across.at,
+                .y = down.at,
+            });
         }
     }
+
     _ = each(node, .shown, place, .{window});
 }
 
 /// Draws what the popups show, a popup inside another in front of it.
 pub fn paint(node: anytype, target: *Target) void {
     if (comptime !pops(@TypeOf(node.*))) return;
+
     if (comptime isPopup(@TypeOf(node.widget))) {
         paint(&node.children[0], target);
+
         const popup = &node.widget;
         if (!popup.visible) return;
+
         const content = &node.children[1];
         const transition = popup.transition;
         const opacity = popup.faded.at(transition.fade, target.now);
         const grown = popup.grown.at(transition.grow, target.now);
         const scale = transition.scale + (1 - transition.scale) * grown;
         const settled = opacity >= 1 and scale == 1;
+
         if (!settled) {
             const at = node_zig.offsetOf(content);
             target.canvas.push(.{
@@ -190,48 +229,72 @@ pub fn paint(node: anytype, target: *Target) void {
                 },
             });
         }
+
         painter.paint(content, target);
         paint(content, target);
+
         if (!settled) target.canvas.pop();
+
         return;
     }
+
     _ = each(node, .shown, paint, .{target});
 }
 
 /// The first focusable node of the view of the outermost popup on `path`
 /// that is no longer open: where the focus goes when it was in what that
 /// popup showed. Returns whether there is such a popup.
-pub fn anchorOf(node: anytype, path: []const node_zig.NodeId, anchor: *?node_zig.NodeId) bool {
+pub fn anchorOf(
+    node: anytype,
+    path: []const node_zig.NodeId,
+    anchor: *?node_zig.NodeId,
+) bool {
     if (comptime !pops(@TypeOf(node.*))) return false;
     if (!node_zig.contains(path, node.id)) return false;
+
     if (comptime isPopup(@TypeOf(node.widget))) {
-        if (!node.widget.active and node_zig.contains(path, node.children[1].id)) {
+        const closed = !node.widget.active;
+        if (closed and node_zig.contains(path, node.children[1].id)) {
             var walk: input.FocusWalk = .{ .current = null };
             input.walkFocus(&node.children[0], &walk);
             anchor.* = walk.first;
+
             return true;
         }
     }
-    return each(node, .all, anchorOf, .{ path, anchor });
+
+    return each(node, .all, anchorOf, .{
+        path,
+        anchor,
+    });
 }
 
 /// Collects the deepest node at `at` in what the open popups show, and its
 /// ancestors. Sets `open` when a popup is open, whether `at` is in it or not.
 pub fn hit(node: anytype, at: Point, path: anytype, open: *bool) bool {
     if (comptime !pops(@TypeOf(node.*))) return false;
+
     const found = shown: {
         if (comptime isPopup(@TypeOf(node.widget))) {
             if (node.widget.active) {
                 open.* = true;
                 const content = &node.children[1];
+
                 break :shown hit(content, at, path, open) or
                     input.hit(content, at, path) or
                     hit(&node.children[0], at, path, open);
             }
         }
-        break :shown each(node, .front, hit, .{ at, path, open });
+
+        break :shown each(node, .front, hit, .{
+            at,
+            path,
+            open,
+        });
     };
+
     if (found) path.push(node.id);
+
     return found;
 }
 
@@ -239,13 +302,16 @@ pub fn hit(node: anytype, at: Point, path: anytype, open: *bool) bool {
 /// when no popup is open.
 pub fn walkFocus(node: anytype, walk: *input.FocusWalk) bool {
     if (comptime !pops(@TypeOf(node.*))) return false;
+
     if (comptime isPopup(@TypeOf(node.widget))) {
         if (node.widget.active) {
             const content = &node.children[1];
             if (!walkFocus(content, walk)) input.walkFocus(content, walk);
+
             return true;
         }
     }
+
     return each(node, .front, walkFocus, .{walk});
 }
 
@@ -259,18 +325,26 @@ pub fn shortcut(
     by: *?node_zig.NodeId,
 ) bool {
     if (comptime !pops(@TypeOf(node.*))) return false;
+
     const Widget = @TypeOf(node.widget);
     const inner = call.ownersIn(node, owners);
+
     if (comptime isPopup(Widget)) {
         if (node.widget.active) {
             const content = &node.children[1];
-            if (!shortcut(content, press, inner, state, by)) {
+            if (!shortcut(content, press, inner, state, by))
                 input.shortcut(content, press, inner, state, by);
-            }
+
             return true;
         }
     }
-    return each(node, .front, shortcut, .{ press, inner, state, by });
+
+    return each(node, .front, shortcut, .{
+        press,
+        inner,
+        state,
+        by,
+    });
 }
 
 /// Runs the `dismiss` of the popups that are open, the ones inside first.
@@ -282,11 +356,19 @@ pub fn dismiss(
     told: *bool,
 ) void {
     if (comptime !pops(@TypeOf(node.*))) return;
+
     const Widget = @TypeOf(node.widget);
     const inner = call.ownersIn(node, owners);
-    _ = each(node, .shown, dismiss, .{ inner, state, told });
+
+    _ = each(node, .shown, dismiss, .{
+        inner,
+        state,
+        told,
+    });
+
     if (comptime !isPopup(Widget)) return;
     if (!node.widget.active) return;
+
     _ = invoke(Widget.dismiss, owners, state, {});
     markTargets(Widget.dismiss, owners);
     told.* = true;

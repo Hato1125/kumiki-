@@ -1,20 +1,20 @@
 const std = @import("std");
-
-const call = @import("base/call.zig");
-const invoke = call.invoke;
 const types = @import("types");
 const Extent = types.Extent;
 const Point = types.Point;
+const text_zig = @import("text");
+
+const call = @import("base/call.zig");
+const invoke = call.invoke;
+const node_zig = @import("base/node.zig");
+const NodeId = node_zig.NodeId;
+const Tasks = @import("base/task.zig").Tasks;
 const input = @import("pass/input.zig");
 const keys = input.keys;
 const pass = @import("pass/layout.zig");
-const node_zig = @import("base/node.zig");
-const NodeId = node_zig.NodeId;
 const painter = @import("pass/paint.zig");
 const paint = painter.paint;
 const popup = @import("pass/popup.zig");
-const Tasks = @import("base/task.zig").Tasks;
-const text_zig = @import("text");
 const tree = @import("pass/tree.zig");
 
 /// A tree of views with its focus and pointer. `Impl` hands over the events
@@ -39,8 +39,8 @@ const tree = @import("pass/tree.zig");
 /// The root may declare `pub fn closing`, which returns whether the scene
 /// closes when the implementation reports a close, and without which it
 /// does. Its parameters are filled in by type, as described at `invoke` in
-/// call.zig, and the components it receives as mutable pointers are built
-/// again, so that it can bring up a view that asks first.
+/// base/call.zig, and the components it receives as mutable pointers are
+/// built again, so that it can bring up a view that asks first.
 pub fn Scene(comptime Impl: type, comptime Root: type) type {
     if (!node_zig.isComponent(Root))
         @compileError("the root must be a component with a view");
@@ -58,7 +58,13 @@ pub fn Scene(comptime Impl: type, comptime Root: type) type {
         "input",
         "copy",
         "paste",
-    }) |name| if (!@hasDecl(Impl, name)) @compileError(@typeName(Impl) ++ " is no implementation: it lacks " ++ name);
+    }) |name| {
+        if (!@hasDecl(Impl, name)) {
+            @compileError(
+                @typeName(Impl) ++ " is no implementation: it lacks " ++ name,
+            );
+        }
+    }
 
     return struct {
         impl: Impl,
@@ -68,44 +74,58 @@ pub fn Scene(comptime Impl: type, comptime Root: type) type {
         scale: f32 = 1,
         pointer: ?Point = null,
         pending: bool = true,
+
         /// Where the focus, the pointer and the pressed tap are. The state
         /// shows them to the functions.
         focus: Path = .{},
         hover: Path = .{},
         press: Path = .{},
+
         /// The node that holds the pointer and the button it holds it with,
         /// and where the pointer was seen last, which is kept while it is
         /// outside the window.
         held: ?NodeId = null,
         held_by: input.MouseButton = .left,
         last: Point = .{},
+
         /// What the views that watch the pointer were told last: the path
         /// it was over, and where it was.
         told: Path = .{},
         told_at: Point = .{},
+
         /// The node that takes the typed text.
         typing: ?NodeId = null,
+
         /// The component that asked for the focus since the last build.
         wanted: ?NodeId = null,
+
         /// Whether a function asked to close the scene.
         closed: bool = false,
+
         /// When the last drawing asked for the next one.
         again: f64 = std.math.inf(f64),
+
         /// How the scene draws, which a function may change through its
         /// Context: `limit` is the most frames in a second.
         vsync: bool = true,
         limit: ?f64 = null,
+
         /// The vsync the implementation was told last.
         synced: ?bool = null,
+
         /// When the last drawing was made, and whether one waits for the
         /// next that `limit` allows.
         drawn: f64 = -std.math.inf(f64),
         owed: bool = false,
+
         /// Whether something was built or laid out since the last drawing.
         changed: bool = true,
 
         const Self = @This();
         const Path = node_zig.Path(node_zig.depthOf(node_zig.Node(Root)));
+
+        // A view whose constraint follows what it builds may never settle.
+        const max_rounds = 4;
 
         /// The scene keeps the only copy of `root` that stays up to date, so
         /// what the root allocates is freed by its `unmount`, not by the
@@ -115,10 +135,15 @@ pub fn Scene(comptime Impl: type, comptime Root: type) type {
             options: Impl.Options,
             root: Root,
         ) !Self {
-            const tasks = gpa.create(Tasks) catch @panic("out of memory");
+            const tasks = try gpa.create(Tasks);
             errdefer gpa.destroy(tasks);
-            tasks.* = .{ .gpa = gpa, .wake = wake };
-            var s: Self = .{
+
+            tasks.* = .{
+                .gpa = gpa,
+                .wake = wake,
+            };
+
+            var self: Self = .{
                 .impl = try Impl.init(gpa, options),
                 .state = .{
                     .gpa = gpa,
@@ -135,33 +160,35 @@ pub fn Scene(comptime Impl: type, comptime Root: type) type {
                 },
                 .root = undefined,
             };
-            s.settle();
-            s.state.now = s.impl.now();
-            tree.mount(&s.root, root, &s.state, .{});
-            return s;
+            self.settle();
+            self.state.now = self.impl.now();
+            tree.mount(&self.root, root, &self.state, .{});
+
+            return self;
         }
 
         /// Waits for the functions that still run in the background. The
         /// tree goes first, because an `unmount` may spawn one more.
-        pub fn deinit(s: *Self) void {
-            s.settle();
-            tree.destroy(&s.root, &s.state, .{});
-            s.state.tasks.deinit();
-            s.impl.deinit();
-            s.state.gpa.destroy(s.state.tasks);
+        pub fn deinit(self: *Self) void {
+            self.settle();
+            tree.destroy(&self.root, &self.state, .{});
+
+            self.state.tasks.deinit();
+            self.impl.deinit();
+            self.state.gpa.destroy(self.state.tasks);
         }
 
         // The scene may have been moved since it was last used, and its paths
         // change, so what the state points at inside the scene is set anew.
-        fn settle(s: *Self) void {
-            s.state.host.impl = &s.impl;
-            s.state.wanted = &s.wanted;
-            s.state.closed = &s.closed;
-            s.state.vsync = &s.vsync;
-            s.state.limit = &s.limit;
-            s.state.focus = s.focus.slice();
-            s.state.hover = s.hover.slice();
-            s.state.press = s.press.slice();
+        fn settle(self: *Self) void {
+            self.state.host.impl = &self.impl;
+            self.state.wanted = &self.wanted;
+            self.state.closed = &self.closed;
+            self.state.vsync = &self.vsync;
+            self.state.limit = &self.limit;
+            self.state.focus = self.focus.slice();
+            self.state.hover = self.hover.slice();
+            self.state.press = self.press.slice();
         }
 
         fn wake(impl: *anyopaque) void {
@@ -176,442 +203,522 @@ pub fn Scene(comptime Impl: type, comptime Root: type) type {
             return Impl.copy(@ptrCast(@alignCast(impl)), text);
         }
 
-        pub fn run(s: *Self) !void {
-            while (try s.frame()) {}
+        pub fn run(self: *Self) !void {
+            while (try self.frame()) {}
         }
 
         /// Whether the next frame is needed without waiting for input.
-        pub fn busy(s: *const Self) bool {
-            return s.pending or s.state.animating or s.owed or s.strays();
+        pub fn busy(self: *const Self) bool {
+            return self.pending or
+                self.state.animating or
+                self.owed or
+                self.strays();
         }
 
-        // Whether a view holds the pointer outside its bounds.
-        fn strays(s: *const Self) bool {
-            const held = s.held orelse return false;
-            return !node_zig.contains(s.hover.slice(), held);
+        fn strays(self: *const Self) bool {
+            const held = self.held orelse return false;
+
+            return !node_zig.contains(self.hover.slice(), held);
         }
 
         /// Returns false once the implementation reports a close that the
         /// root lets through, or a function closed the scene through its
         /// Context. The scene must stay where it is from its first frame on,
         /// because a function in the background wakes the implementation
-        /// where the last frame found it. Events that change nothing leave the last drawing as it
-        /// is, so a frame draws only when something was built again, the size
-        /// changed, an animation runs, a drawing asked for the time it is, or
-        /// the implementation asks for it or woke without an event.
-        pub fn frame(s: *Self) !bool {
-            s.settle();
-            s.state.tasks.waker.store(&s.impl, .release);
-            const due = @min(s.again, s.state.tasks.due(), s.ready());
-            var wait = if (s.pending or s.strays()) 0 else @max(0, due - s.impl.now());
+        /// where the last frame found it.
+        pub fn frame(self: *Self) !bool {
+            self.settle();
+            self.state.tasks.waker.store(&self.impl, .release);
+
+            const due = @min(self.again, self.state.tasks.due(), self.ready());
+            const idle = !self.pending and !self.strays();
+            var wait = if (idle) @max(0, due - self.impl.now()) else 0;
+
             // The frame after an animation ended shows where it ended.
-            const moving = s.state.animating;
+            const moving = self.state.animating;
+
             var seen = false;
             var redraw = false;
-            while (s.impl.next(wait)) |event| : (wait = 0) {
+            while (self.impl.next(wait)) |event| : (wait = 0) {
                 seen = true;
-                s.state.now = s.impl.now();
+                self.state.now = self.impl.now();
+
                 switch (event) {
                     .pointer_move => |at| {
-                        s.hoverAt(at);
-                        s.hold(.move);
+                        self.hoverAt(at);
+                        self.hold(.move);
                     },
-                    .pointer_leave => s.hoverAt(null),
-                    .button => |button| s.pressButton(button),
-                    .wheel => |wheel| s.offerAt(wheel.at, .{ .wheel = wheel }),
-                    .drop => |drop| s.offerAt(.{ .x = drop.x, .y = drop.y }, .{ .drop = drop }),
-                    .key => |press| s.pressKey(press),
-                    .text => |text| _ = s.offer(s.focus.id(), .{ .text = text }),
-                    .active => |active| s.activate(active),
+                    .pointer_leave => self.hoverAt(null),
+                    .button => |button| self.pressButton(button),
+                    .wheel => |wheel| {
+                        self.offerAt(wheel.at, .{ .wheel = wheel });
+                    },
+                    .drop => |drop| {
+                        const at: Point = .{
+                            .x = drop.x,
+                            .y = drop.y,
+                        };
+                        self.offerAt(at, .{ .drop = drop });
+                    },
+                    .key => |press| self.pressKey(press),
+                    .text => |text| {
+                        _ = self.offer(self.focus.id(), .{ .text = text });
+                    },
+                    .active => |active| self.activate(active),
                     .redraw => redraw = true,
-                    .close => if (s.mayClose()) return false,
+                    .close => if (self.mayClose()) return false,
                 }
             }
-            s.state.now = s.impl.now();
-            if (s.strays()) s.hold(.move);
-            s.receive();
-            s.update();
-            if (s.closed) return false;
 
+            self.state.now = self.impl.now();
+            if (self.strays()) self.hold(.move);
+
+            self.receive();
+            self.update();
+            if (self.closed) return false;
+
+            // Events that change nothing leave the last drawing as it is. A
+            // wake without an event draws, and so does the time a drawing
+            // asked for.
             const still = seen and
                 !redraw and
-                !s.changed and
+                !self.changed and
                 !moving and
-                !s.state.animating and
-                !s.owed;
-            if (still and s.state.now < s.again) return true;
+                !self.state.animating and
+                !self.owed;
+            if (still and self.state.now < self.again) return true;
 
-            if (s.state.now < s.slot()) {
-                s.owed = true;
+            if (self.state.now < self.slot()) {
+                self.owed = true;
                 return true;
             }
 
-            s.again = std.math.inf(f64);
-            s.owed = false;
-            s.drawn = s.state.now;
-            if (comptime @hasDecl(Impl, "vsync")) {
-                if (s.synced != s.vsync) {
-                    s.impl.vsync(s.vsync);
-                    s.synced = s.vsync;
-                }
-            }
-            if (try s.impl.begin()) |canvas| {
-                s.changed = false;
-                var target: painter.Target = .{
-                    .canvas = canvas,
-                    .now = s.state.now,
-                    .again = s.again,
-                };
-                paint(&s.root, &target);
-                popup.paint(&s.root, &target);
-                s.again = target.again;
-                try s.impl.end();
-            }
+            try self.draw();
+
             return true;
         }
 
-        // The earliest time `limit` allows the next drawing at.
-        fn slot(s: *const Self) f64 {
-            const max = s.limit orelse return -std.math.inf(f64);
-            return s.drawn + 1 / max;
+        fn draw(self: *Self) !void {
+            self.again = std.math.inf(f64);
+            self.owed = false;
+            self.drawn = self.state.now;
+
+            if (comptime @hasDecl(Impl, "vsync")) {
+                if (self.synced != self.vsync) {
+                    self.impl.vsync(self.vsync);
+                    self.synced = self.vsync;
+                }
+            }
+
+            const canvas = try self.impl.begin() orelse return;
+            self.changed = false;
+
+            var target: painter.Target = .{
+                .canvas = canvas,
+                .now = self.state.now,
+                .again = self.again,
+            };
+            paint(&self.root, &target);
+            popup.paint(&self.root, &target);
+            self.again = target.again;
+
+            try self.impl.end();
+        }
+
+        fn slot(self: *const Self) f64 {
+            const max = self.limit orelse return -std.math.inf(f64);
+
+            return self.drawn + 1 / max;
         }
 
         // When the scene has to wake for a drawing that changes on its own,
         // or one that waits for its slot. Input is taken at once, and only
         // its drawing waits.
-        fn ready(s: *const Self) f64 {
-            if (s.state.animating or s.owed) return s.slot();
+        fn ready(self: *const Self) f64 {
+            if (self.state.animating or self.owed) return self.slot();
+
             return std.math.inf(f64);
         }
 
-        // Hands over what the background functions that have ended returned,
-        // and makes the calls that are due. Both are dropped when the
-        // component that asked for them is gone.
-        fn receive(s: *Self) void {
-            while (s.state.tasks.take(s.state.now)) |task| {
+        fn receive(self: *Self) void {
+            while (self.state.tasks.take(self.state.now)) |task| {
                 var handled = false;
-                const found = input.deliver(&s.root, task.tag, task, .{}, &s.state, &handled);
+                const found = input.deliver(
+                    &self.root,
+                    task.tag,
+                    task,
+                    .{},
+                    &self.state,
+                    &handled,
+                );
                 if (found and !handled) {
-                    @panic("no component lists the function given to spawn or after in its `later`");
+                    @panic(
+                        "no component lists the function given to spawn " ++
+                            "or after in its `later`",
+                    );
                 }
-                if (handled) s.pending = true;
-                task.destroy(task, s.state.gpa);
+
+                if (handled) self.pending = true;
+
+                task.destroy(task, self.state.gpa);
             }
         }
 
-        // A component whose functions received the constraint it is
-        // measured with is built and measured again in the same frame when
-        // that changes. The rounds are bounded, because a view whose
-        // constraint follows what it builds may never settle.
-        fn update(s: *Self) void {
-            const size = s.impl.size();
-            const scale: f32 = if (comptime @hasDecl(Impl, "scale")) s.impl.scale() else s.scale;
+        fn update(self: *Self) void {
+            const size = self.impl.size();
+            const scale: f32 = if (comptime @hasDecl(Impl, "scale"))
+                self.impl.scale()
+            else
+                self.scale;
+
             // Before anything is built: an animation measures its view on
             // its own.
             if (comptime @hasDecl(Impl, "scale")) text_zig.setScale(scale);
-            s.pending = false;
-            for (0..4) |_| {
-                if (!s.round(size, scale)) break;
-            }
-            if (s.state.inputs != 0 or s.typing != null) s.retype();
+
+            self.pending = false;
+
+            for (0..max_rounds) |_|
+                if (!self.round(size, scale)) break;
+
+            if (self.state.inputs != 0 or self.typing != null) self.retype();
         }
 
-        // Builds and lays out the tree once, and returns whether a component
-        // was marked to be built again for a new constraint. A path that went
-        // stale is found again, and dropped when its node is gone or no
-        // longer shown. The focus that was in a popup goes back to the view
-        // of the popup when that closes. A new layout may have moved
-        // something under a still pointer.
-        fn round(s: *Self, size: Extent, scale: f32) bool {
-            const state = &s.state;
+        fn round(self: *Self, size: Extent, scale: f32) bool {
+            const state = &self.state;
             state.animating = false;
             state.built = false;
             state.stale = false;
-            tree.rebuild(&s.root, state, .{});
-            popup.advance(&s.root, state);
 
-            if (state.stale) {
-                var focus = s.pathTo(s.focus.id());
-                if (focus.id() == null) {
-                    var anchor: ?NodeId = null;
-                    _ = popup.anchorOf(&s.root, s.focus.slice(), &anchor);
-                    focus = s.pathTo(anchor);
-                }
-                s.move(&s.focus, focus);
-                inline for (.{ &s.hover, &s.press }) |path| {
-                    s.move(path, s.pathTo(path.id()));
-                }
-                if (s.pathTo(s.held).id() == null) s.held = null;
-            }
-            if (s.wanted) |wanted| {
+            tree.rebuild(&self.root, state, .{});
+            popup.advance(&self.root, state);
+
+            if (state.stale) self.refreshPaths();
+
+            if (self.wanted) |wanted| {
                 var walk: input.FocusWalk = .{ .current = null };
-                _ = input.walkFocusIn(&s.root, wanted, &walk);
-                s.wanted = null;
-                if (walk.first) |first| s.move(&s.focus, s.pathTo(first));
+                _ = input.walkFocusIn(&self.root, wanted, &walk);
+                self.wanted = null;
+
+                if (walk.first) |first|
+                    self.move(&self.focus, self.pathTo(first));
             }
-            const measured = state.built or !std.meta.eql(size, s.size) or scale != s.scale;
+
+            const measured = state.built or
+                !std.meta.eql(size, self.size) or
+                scale != self.scale;
             if (measured) {
-                s.changed = true;
-                s.size = size;
-                s.scale = scale;
-                _ = pass.measure(&s.root, .tight(size));
-                pass.layout(&s.root, .{});
-                popup.place(&s.root, size);
-                if (s.pointer) |at| s.hoverAt(at);
+                self.changed = true;
+                self.size = size;
+                self.scale = scale;
+
+                _ = pass.measure(&self.root, .tight(size));
+                pass.layout(&self.root, .{});
+                popup.place(&self.root, size);
+
+                // A new layout may have moved something under a still
+                // pointer.
+                if (self.pointer) |at| self.hoverAt(at);
             }
+
             // A running animation measured its view while it was built.
             if (!measured and !state.animating) return false;
+
             var marked = false;
-            tree.markResized(&s.root, &marked);
+            tree.markResized(&self.root, &marked);
+
             return marked;
         }
 
-        // Asks the implementation for typed text where the focus is on an
-        // input or inside one, and no longer when it is not. The input that
-        // the typing leaves is offered an empty composition, and the
-        // implementation is stopped, so that a composition under way ends
-        // on both sides instead of going on in the next input.
-        fn retype(s: *Self) void {
-            var found: input.Typing = .{};
-            if (s.state.active) {
-                if (s.focus.id()) |focus| {
-                    _ = input.typingArea(&s.root, focus, &found);
-                }
+        fn refreshPaths(self: *Self) void {
+            var focus = self.pathTo(self.focus.id());
+
+            if (focus.id() == null) {
+                var anchor: ?NodeId = null;
+                _ = popup.anchorOf(&self.root, self.focus.slice(), &anchor);
+                focus = self.pathTo(anchor);
             }
-            if (s.typing) |typing| {
-                if (found.target != typing) {
-                    _ = s.offer(typing, .{
-                        .text = .{ .text = "", .composing = true },
-                    });
-                    if (s.state.typing != null) s.impl.input(null);
-                    s.state.typing = null;
-                }
-            }
-            s.typing = found.target;
-            if (std.meta.eql(found.area, s.state.typing)) return;
-            s.state.typing = found.area;
-            s.impl.input(found.area);
+            self.move(&self.focus, focus);
+
+            inline for (.{
+                &self.hover,
+                &self.press,
+            }) |path|
+                self.move(path, self.pathTo(path.id()));
+
+            if (self.pathTo(self.held).id() == null) self.held = null;
         }
 
-        fn pathTo(s: *Self, id: ?NodeId) Path {
+        fn retype(self: *Self) void {
+            var found: input.Typing = .{};
+            if (self.state.active) {
+                if (self.focus.id()) |focus|
+                    _ = input.typingArea(&self.root, focus, &found);
+            }
+
+            // The input that the typing leaves is offered an empty
+            // composition, and the implementation is stopped, so that a
+            // composition under way ends on both sides.
+            if (self.typing) |typing| {
+                if (found.target != typing) {
+                    _ = self.offer(typing, .{
+                        .text = .{
+                            .text = "",
+                            .composing = true,
+                        },
+                    });
+                    if (self.state.typing != null) self.impl.input(null);
+                    self.state.typing = null;
+                }
+            }
+            self.typing = found.target;
+
+            if (std.meta.eql(found.area, self.state.typing)) return;
+
+            self.state.typing = found.area;
+            self.impl.input(found.area);
+        }
+
+        fn pathTo(self: *Self, id: ?NodeId) Path {
             var path: Path = .{};
-            if (id) |target| _ = input.findPath(&s.root, target, &path);
+            if (id) |target| _ = input.findPath(&self.root, target, &path);
+
             return path;
         }
 
-        // The components that the path enters or leaves are built again.
-        fn move(s: *Self, path: *Path, next: Path) void {
+        fn move(self: *Self, path: *Path, next: Path) void {
             if (next.id() == path.id()) return;
-            tree.markChanged(&s.root, path.slice(), next.slice());
+
+            tree.markChanged(&self.root, path.slice(), next.slice());
             path.* = next;
-            s.settle();
-            s.pending = true;
+            self.settle();
+            self.pending = true;
         }
 
         // The components around the focus show it differently, so they are
         // built again when the kind of input changes.
-        fn setKeyboard(s: *Self, keyboard: bool) void {
-            if (keyboard == s.state.keyboard) return;
-            s.state.keyboard = keyboard;
-            tree.markChanged(&s.root, s.focus.slice(), &.{});
-            s.pending = true;
+        fn setKeyboard(self: *Self, keyboard: bool) void {
+            if (keyboard == self.state.keyboard) return;
+
+            self.state.keyboard = keyboard;
+            tree.markChanged(&self.root, self.focus.slice(), &.{});
+            self.pending = true;
         }
 
-        // While a popup is open, the pointer is over what the popups show
-        // or over nothing.
-        fn hoverAt(s: *Self, at: ?Point) void {
-            s.pointer = at;
+        fn hoverAt(self: *Self, at: ?Point) void {
+            self.pointer = at;
+
             var path: Path = .{};
             if (at) |point| {
-                s.last = point;
+                self.last = point;
+
                 var open = false;
-                if (!popup.hit(&s.root, point, &path, &open) and !open) {
-                    _ = input.hit(&s.root, point, &path);
-                }
+                const in_popup = popup.hit(&self.root, point, &path, &open);
+                if (!in_popup and !open)
+                    _ = input.hit(&self.root, point, &path);
             }
-            s.move(&s.hover, path);
-            s.watch();
+
+            self.move(&self.hover, path);
+            self.watch();
         }
 
-        // Tells the views with a `hover` modifier what the pointer did since
-        // they were told last. A path that went stale in between is told at
-        // the next hit.
-        fn watch(s: *Self) void {
-            if (comptime !input.watches(@TypeOf(s.root))) return;
-            const hover = &s.hover;
-            const moved = !std.meta.eql(s.last, s.told_at);
-            if (!moved and hover.id() == s.told.id()) return;
+        fn watch(self: *Self) void {
+            if (comptime !input.watches(@TypeOf(self.root))) return;
+
+            const hover = &self.hover;
+            const moved = !std.meta.eql(self.last, self.told_at);
+            if (!moved and hover.id() == self.told.id()) return;
 
             var told = false;
-            input.watch(&s.root, .{
-                .was = s.told.slice(),
+            input.watch(&self.root, .{
+                .was = self.told.slice(),
                 .is = hover.slice(),
                 .moved = moved,
-                .at = s.last,
-            }, .{}, &s.state, &told);
-            s.told = hover.*;
-            s.told_at = s.last;
-            if (told) s.pending = true;
+                .at = self.last,
+            }, .{}, &self.state, &told);
+
+            self.told = hover.*;
+            self.told_at = self.last;
+            if (told) self.pending = true;
         }
 
-        fn mayClose(s: *Self) bool {
+        fn mayClose(self: *Self) bool {
             if (comptime !@hasDecl(Root, "closing")) return true;
             if (comptime node_zig.ReturnOf(Root.closing) != bool) {
-                @compileError("the closing of " ++ @typeName(Root) ++
-                    " must return a bool");
+                @compileError(
+                    "the closing of " ++ @typeName(Root) ++
+                        " must return a bool",
+                );
             }
-            const owners = .{&s.root};
-            if (invoke(Root.closing, owners, &s.state, {})) return true;
+
+            const owners = .{&self.root};
+            if (invoke(Root.closing, owners, &self.state, {})) return true;
+
             call.markTargets(Root.closing, owners);
-            s.pending = true;
+            self.pending = true;
+
             return false;
         }
 
-        // Returns whether a popup was open to be dismissed.
-        fn dismiss(s: *Self) bool {
+        fn dismiss(self: *Self) bool {
             var told = false;
-            popup.dismiss(&s.root, .{}, &s.state, &told);
-            if (told) s.pending = true;
+            popup.dismiss(&self.root, .{}, &self.state, &told);
+            if (told) self.pending = true;
+
             return told;
         }
 
-        // Tells the view that holds the pointer what the pointer does.
-        fn hold(s: *Self, phase: @FieldType(input.Pointer, "phase")) void {
-            const held = s.held orelse return;
-            _ = s.offer(held, .{ .pointer = .{
+        fn hold(self: *Self, phase: @FieldType(input.Pointer, "phase")) void {
+            const held = self.held orelse return;
+
+            _ = self.offer(held, .{ .pointer = .{
                 .phase = phase,
-                .button = s.held_by,
-                .x = s.last.x,
-                .y = s.last.y,
+                .button = self.held_by,
+                .x = self.last.x,
+                .y = self.last.y,
             } });
         }
 
-        // Without the keyboard nothing has the focus, so what shows the
-        // focus is built again. A pointer that is held is let go, because
-        // its release may never arrive.
-        fn activate(s: *Self, active: bool) void {
-            if (active == s.state.active) return;
-            s.state.active = active;
-            tree.markChanged(&s.root, s.focus.slice(), &.{});
-            s.pending = true;
+        fn activate(self: *Self, active: bool) void {
+            if (active == self.state.active) return;
+
+            // Without the keyboard nothing has the focus, so what shows the
+            // focus is built again.
+            self.state.active = active;
+            tree.markChanged(&self.root, self.focus.slice(), &.{});
+            self.pending = true;
             if (active) return;
-            s.hold(.cancel);
-            s.held = null;
-            s.move(&s.press, .{});
+
+            // A pointer that is held is let go, because its release may
+            // never arrive.
+            self.hold(.cancel);
+            self.held = null;
+            self.move(&self.press, .{});
         }
 
-        // A press outside the open popups dismisses them. The left button
-        // does nothing else then, so that the view of a popup does not open
-        // it again, while another button goes on to what lies there once the
-        // popups are gone, so that a menu can open again where it is asked
-        // for. Pressing the left button moves the focus to the nearest
-        // focusable node. A press is offered to the views that take the pointer, and
-        // one that uses it holds the pointer until that button is released:
-        // the other buttons do nothing meanwhile, and a tap that was pressed
-        // is let go. Otherwise a tap fires when the left button goes up over
-        // the tap it went down on.
-        fn pressButton(s: *Self, button: input.MouseButtonEvent) void {
-            s.hoverAt(.{ .x = button.x, .y = button.y });
+        fn pressButton(self: *Self, button: input.MouseButtonEvent) void {
+            self.hoverAt(.{
+                .x = button.x,
+                .y = button.y,
+            });
+
+            if (button.down) self.buttonDown(button) else self.buttonUp(button);
+        }
+
+        fn buttonDown(self: *Self, button: input.MouseButtonEvent) void {
+            if (self.held != null) return;
+
             const left = button.button == .left;
 
-            if (button.down) {
-                if (s.held != null) return;
-                if (s.hover.id() == null and s.dismiss()) {
-                    if (left) return;
-                    s.update();
-                    s.hoverAt(.{ .x = button.x, .y = button.y });
-                }
-                var found: input.Nearest = .{};
-                if (left) {
-                    s.setKeyboard(false);
-                    if (s.hover.id()) |over| {
-                        _ = input.nearest(&s.root, over, &found);
-                    }
-                    if (found.focusable) |focusable| {
-                        s.move(&s.focus, s.hover.from(focusable));
-                    }
-                }
-                s.held = s.offer(s.hover.id(), .{ .pointer = .{
-                    .phase = .down,
-                    .button = button.button,
+            // A press outside the open popups dismisses them. The left
+            // button does nothing else then, so that the view of a popup
+            // does not open it again.
+            if (self.hover.id() == null and self.dismiss()) {
+                if (left) return;
+
+                // Another button goes on to what lies there once the popups
+                // are gone, so that a menu can open again where it is asked
+                // for.
+                self.update();
+                self.hoverAt(.{
                     .x = button.x,
                     .y = button.y,
-                    .clicks = button.clicks,
-                    .mod = button.mod,
-                } });
-                s.held_by = button.button;
-                if (s.held != null) {
-                    s.move(&s.press, .{});
-                } else if (left) {
-                    const tap = if (found.tap) |tap| s.hover.from(tap) else Path{};
-                    s.move(&s.press, tap);
-                }
-                return;
+                });
             }
 
-            if (s.held != null) {
-                if (button.button != s.held_by) return;
-                s.hold(.up);
-                s.held = null;
-                return;
+            var found: input.Nearest = .{};
+            if (left) {
+                self.setKeyboard(false);
+                if (self.hover.id()) |over|
+                    _ = input.nearest(&self.root, over, &found);
+                if (found.focusable) |focusable|
+                    self.move(&self.focus, self.hover.from(focusable));
             }
-            if (!left) return;
-            const target = s.press.id() orelse return;
-            s.move(&s.press, .{});
-            if (node_zig.contains(s.hover.slice(), target)) {
-                _ = s.offer(target, .click);
+
+            self.held = self.offer(self.hover.id(), .{ .pointer = .{
+                .phase = .down,
+                .button = button.button,
+                .x = button.x,
+                .y = button.y,
+                .clicks = button.clicks,
+                .mod = button.mod,
+            } });
+            self.held_by = button.button;
+
+            if (self.held != null) {
+                self.move(&self.press, .{});
+            } else if (left) {
+                const pressed: Path = if (found.tap) |tap|
+                    self.hover.from(tap)
+                else
+                    .{};
+                self.move(&self.press, pressed);
             }
         }
 
-        // Keys go to the focus first, and then to the shortcuts. When nothing
-        // used them, Tab moves the focus and Escape drops it. While a popup is open, the focus moves
-        // inside the one in front, with the up and down keys too, and Escape
-        // dismisses the popups instead.
-        fn pressKey(s: *Self, press: input.KeyPress) void {
-            if (press.down and !press.isModifier()) s.setKeyboard(true);
-            if (s.offer(s.focus.id(), .{ .key = press }) != null) return;
-            if (!press.down) return;
-            if (s.shortcut(press)) return;
+        fn buttonUp(self: *Self, button: input.MouseButtonEvent) void {
+            if (self.held != null) {
+                if (button.button != self.held_by) return;
 
-            if (press.key == keys.escape) {
-                if (!s.dismiss()) s.move(&s.focus, .{});
+                self.hold(.up);
+                self.held = null;
                 return;
             }
+            if (button.button != .left) return;
+
+            const target = self.press.id() orelse return;
+            self.move(&self.press, .{});
+            if (node_zig.contains(self.hover.slice(), target))
+                _ = self.offer(target, .click);
+        }
+
+        fn pressKey(self: *Self, press: input.KeyPress) void {
+            if (press.down and !press.isModifier()) self.setKeyboard(true);
+
+            if (self.offer(self.focus.id(), .{ .key = press }) != null) return;
+            if (!press.down) return;
+            if (self.shortcut(press)) return;
+
+            if (press.key == keys.escape) {
+                if (!self.dismiss()) self.move(&self.focus, .{});
+                return;
+            }
+
             const tab = press.key == keys.tab;
             const arrow = press.key == keys.up or press.key == keys.down;
             if (!tab and !arrow) return;
-            var walk: input.FocusWalk = .{ .current = s.focus.id() };
-            const inside = popup.walkFocus(&s.root, &walk);
-            if (!inside and !tab) return;
-            if (!inside) input.walkFocus(&s.root, &walk);
+
+            var walk: input.FocusWalk = .{ .current = self.focus.id() };
+            const in_popup = popup.walkFocus(&self.root, &walk);
+            if (!in_popup and !tab) return;
+            if (!in_popup) input.walkFocus(&self.root, &walk);
+
             const backward = if (tab) press.shift() else press.key == keys.up;
-            s.move(&s.focus, s.pathTo(walk.result(backward)));
+            self.move(&self.focus, self.pathTo(walk.result(backward)));
         }
 
-        // Returns whether a shortcut ran.
-        fn shortcut(s: *Self, press: input.KeyPress) bool {
-            if (comptime !input.binds(@TypeOf(s.root))) return false;
+        fn shortcut(self: *Self, press: input.KeyPress) bool {
+            if (comptime !input.binds(@TypeOf(self.root))) return false;
+
             var by: ?NodeId = null;
-            if (!popup.shortcut(&s.root, press, .{}, &s.state, &by)) {
-                input.shortcut(&s.root, press, .{}, &s.state, &by);
-            }
-            if (by != null) s.pending = true;
+            if (!popup.shortcut(&self.root, press, .{}, &self.state, &by))
+                input.shortcut(&self.root, press, .{}, &self.state, &by);
+            if (by != null) self.pending = true;
+
             return by != null;
         }
 
-        // Moves the pointer to `at` and offers `what` to the view there.
-        fn offerAt(s: *Self, at: Point, what: input.Offer) void {
-            s.hoverAt(at);
-            _ = s.offer(s.hover.id(), what);
+        fn offerAt(self: *Self, at: Point, what: input.Offer) void {
+            self.hoverAt(at);
+            _ = self.offer(self.hover.id(), what);
         }
 
-        // Returns the node that handled it. Nothing is offered without a
-        // target.
-        fn offer(s: *Self, target: ?NodeId, what: input.Offer) ?NodeId {
+        fn offer(self: *Self, target: ?NodeId, what: input.Offer) ?NodeId {
             const to = target orelse return null;
+
             var by: ?NodeId = null;
-            _ = input.bubble(&s.root, to, what, .{}, &s.state, &by);
-            if (by != null) s.pending = true;
+            _ = input.bubble(&self.root, to, what, .{}, &self.state, &by);
+            if (by != null) self.pending = true;
+
             return by;
         }
     };

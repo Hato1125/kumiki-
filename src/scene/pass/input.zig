@@ -1,24 +1,31 @@
 const builtin = @import("builtin");
-
 const types = @import("types");
 const Point = types.Point;
+
 const call = @import("../base/call.zig");
 const invoke = call.invoke;
+const markTargets = call.markTargets;
 const node_zig = @import("../base/node.zig");
 const NodeId = node_zig.NodeId;
 const State = node_zig.State;
+const boundsOf = node_zig.boundsOf;
 const contains = node_zig.contains;
 const each = node_zig.each;
-const isFocusable = node_zig.isFocusable;
-const has = node_zig.has;
 const handles = node_zig.handles;
+const has = node_zig.has;
+const isFocusable = node_zig.isFocusable;
 const offsetOf = node_zig.offsetOf;
-const boundsOf = node_zig.boundsOf;
 const task_zig = @import("../base/task.zig");
-const markTargets = call.markTargets;
 
 /// The buttons, keys and modifier bits have the values of SDL3.
-pub const MouseButton = enum(u8) { left = 1, middle, right, x1, x2, _ };
+pub const MouseButton = enum(u8) {
+    left = 1,
+    middle,
+    right,
+    x1,
+    x2,
+    _,
+};
 
 /// `clicks` counts the presses that follow each other quickly at one place:
 /// 2 for a double click. `mod` holds the modifier keys held meanwhile.
@@ -53,8 +60,8 @@ pub const Pointer = struct {
     clicks: u8 = 1,
     mod: u16 = 0,
 
-    pub fn shift(pointer: Pointer) bool {
-        return pointer.mod & shift_bits != 0;
+    pub fn shift(self: Pointer) bool {
+        return self.mod & shift_bits != 0;
     }
 };
 
@@ -64,28 +71,29 @@ pub const KeyPress = struct {
     down: bool = false,
     repeat: bool = false,
 
-    pub fn shift(press: KeyPress) bool {
-        return press.mod & shift_bits != 0;
+    pub fn shift(self: KeyPress) bool {
+        return self.mod & shift_bits != 0;
     }
 
-    pub fn ctrl(press: KeyPress) bool {
-        return press.mod & ctrl_bits != 0;
+    pub fn ctrl(self: KeyPress) bool {
+        return self.mod & ctrl_bits != 0;
     }
 
-    pub fn alt(press: KeyPress) bool {
-        return press.mod & alt_bits != 0;
+    pub fn alt(self: KeyPress) bool {
+        return self.mod & alt_bits != 0;
     }
 
     /// Whether the key of shortcuts is held: Cmd on macOS and Ctrl elsewhere,
     /// where Ctrl together with Alt is AltGr, which types characters.
-    pub fn command(press: KeyPress) bool {
-        if (builtin.os.tag.isDarwin()) return press.mod & gui_bits != 0;
-        return press.ctrl() and !press.alt();
+    pub fn command(self: KeyPress) bool {
+        if (builtin.os.tag.isDarwin()) return self.mod & gui_bits != 0;
+
+        return self.ctrl() and !self.alt();
     }
 
     /// Whether the key is Ctrl, Shift, Alt or GUI on either side.
-    pub fn isModifier(press: KeyPress) bool {
-        return press.key >= 0x400000e0 and press.key <= 0x400000e7;
+    pub fn isModifier(self: KeyPress) bool {
+        return self.key >= 0x400000e0 and self.key <= 0x400000e7;
     }
 };
 
@@ -99,20 +107,21 @@ pub const Chord = struct {
     alt: bool = false,
     ctrl: bool = false,
 
-    pub fn matches(chord: Chord, press: KeyPress) bool {
+    pub fn matches(self: Chord, press: KeyPress) bool {
         const darwin = builtin.os.tag.isDarwin();
-        const ctrl = chord.ctrl or (chord.command and !darwin);
-        const gui = chord.command and darwin;
-        return press.key == chord.key and
-            press.shift() == chord.shift and
-            press.alt() == chord.alt and
+        const ctrl = self.ctrl or (self.command and !darwin);
+        const gui = self.command and darwin;
+
+        return press.key == self.key and
+            press.shift() == self.shift and
+            press.alt() == self.alt and
             press.ctrl() == ctrl and
             (press.mod & gui_bits != 0) == gui;
     }
 
     // Whether the chord belongs to the text while text is typed.
-    fn plain(chord: Chord) bool {
-        return !chord.command and !chord.alt and !chord.ctrl;
+    fn plain(self: Chord) bool {
+        return !self.command and !self.alt and !self.ctrl;
     }
 };
 
@@ -158,12 +167,12 @@ pub const Wheel = struct {
     flipped: bool = false,
     mod: u16 = 0,
 
-    pub fn shift(wheel: Wheel) bool {
-        return wheel.mod & shift_bits != 0;
+    pub fn shift(self: Wheel) bool {
+        return self.mod & shift_bits != 0;
     }
 
-    pub fn ctrl(wheel: Wheel) bool {
-        return wheel.mod & ctrl_bits != 0;
+    pub fn ctrl(self: Wheel) bool {
+        return self.mod & ctrl_bits != 0;
     }
 };
 
@@ -171,7 +180,11 @@ pub const Wheel = struct {
 /// holds it: it comes over the view or something inside it, moves there, and
 /// leaves. `x` and `y` count from the top left corner of that view.
 pub const Hover = struct {
-    phase: enum { enter, move, leave },
+    phase: enum {
+        enter,
+        move,
+        leave,
+    },
     x: f32 = 0,
     y: f32 = 0,
 };
@@ -182,7 +195,10 @@ pub const Hover = struct {
 /// `y` count from the top left corner of that view. Files that are dropped
 /// together arrive one after the other.
 pub const Drop = struct {
-    kind: enum { file, text },
+    kind: enum {
+        file,
+        text,
+    },
     data: []const u8,
     x: f32 = 0,
     y: f32 = 0,
@@ -207,10 +223,14 @@ pub const Event = union(enum) {
 /// Collects `target` and its ancestors. Like the other searches for input, it
 /// passes over what a `when` does not show.
 pub fn findPath(node: anytype, target: NodeId, path: anytype) bool {
-    if (node.id != target and !each(node, .shown, findPath, .{ target, path })) {
-        return false;
-    }
+    const found = node.id == target or each(node, .shown, findPath, .{
+        target,
+        path,
+    });
+    if (!found) return false;
+
     path.push(node.id);
+
     return true;
 }
 
@@ -220,11 +240,18 @@ pub fn hit(node: anytype, at: Point, path: anytype) bool {
     const origin = offsetOf(node);
     const x = at.x - origin.x;
     const y = at.y - origin.y;
-    if (x < 0 or x >= node.size.width or y < 0 or y >= node.size.height) {
-        return false;
-    }
-    _ = each(node, .front, hit, .{ at, path });
+    const inside = x >= 0 and
+        x < node.size.width and
+        y >= 0 and
+        y < node.size.height;
+    if (!inside) return false;
+
+    _ = each(node, .front, hit, .{
+        at,
+        path,
+    });
     path.push(node.id);
+
     return true;
 }
 
@@ -236,16 +263,22 @@ pub const Nearest = struct {
 /// Finds the nearest tap and the nearest focusable node among `target` and
 /// its ancestors.
 pub fn nearest(node: anytype, target: NodeId, found: *Nearest) bool {
-    if (node.id != target and !each(node, .shown, nearest, .{ target, found })) {
-        return false;
-    }
+    const reached = node.id == target or each(node, .shown, nearest, .{
+        target,
+        found,
+    });
+    if (!reached) return false;
+
     const Widget = @TypeOf(node.widget);
+
     if (comptime handles(Widget, .tap)) {
         if (found.tap == null) found.tap = node.id;
     }
+
     if (comptime isFocusable(Widget)) {
         if (found.focusable == null) found.focusable = node.id;
     }
+
     return true;
 }
 
@@ -259,48 +292,63 @@ pub const FocusWalk = struct {
     before: ?NodeId = null,
     after: ?NodeId = null,
 
-    fn visit(walk: *FocusWalk, id: NodeId) void {
-        if (walk.first == null) walk.first = id;
-        walk.last = id;
-        if (id == walk.current) {
-            walk.seen = true;
-        } else if (!walk.seen) {
-            walk.before = id;
-        } else if (walk.after == null) {
-            walk.after = id;
+    fn visit(self: *FocusWalk, id: NodeId) void {
+        if (self.first == null) self.first = id;
+        self.last = id;
+
+        if (id == self.current) {
+            self.seen = true;
+        } else if (!self.seen) {
+            self.before = id;
+        } else if (self.after == null) {
+            self.after = id;
         }
     }
 
     /// Wraps around at both ends.
-    pub fn result(walk: FocusWalk, backward: bool) ?NodeId {
-        if (backward) return walk.before orelse walk.last;
-        return walk.after orelse walk.first;
+    pub fn result(self: FocusWalk, backward: bool) ?NodeId {
+        if (backward) return self.before orelse self.last;
+
+        return self.after orelse self.first;
     }
 };
 
 // Whether a node wraps a focusable one through single children. It shares
 // the stop of that one then: the inner node takes the focus, and keys and
 // text reach the outer one from there.
-fn wrapsStop(comptime N: type) bool {
-    const Children = @FieldType(N, "children");
+fn wrapsStop(comptime NodeType: type) bool {
+    const Children = @FieldType(NodeType, "children");
     if (Children == void or @hasField(Children, "items")) return false;
+
     const children = @typeInfo(Children).@"struct".field_types;
     if (children.len != 1) return false;
-    return isFocusable(@FieldType(children[0], "widget")) or wrapsStop(children[0]);
+
+    const Child = children[0];
+
+    return isFocusable(@FieldType(Child, "widget")) or wrapsStop(Child);
 }
 
 pub fn walkFocus(node: anytype, walk: *FocusWalk) void {
-    if (comptime isFocusable(@TypeOf(node.widget)) and !wrapsStop(@TypeOf(node.*))) {
+    const Widget = @TypeOf(node.widget);
+
+    if (comptime isFocusable(Widget) and !wrapsStop(@TypeOf(node.*)))
         walk.visit(node.id);
-    }
+
     _ = each(node, .shown, walkFocus, .{walk});
 }
 
 /// Records the focusable nodes of `target` and inside it. Returns whether
 /// `target` is inside `node`.
 pub fn walkFocusIn(node: anytype, target: NodeId, walk: *FocusWalk) bool {
-    if (node.id != target) return each(node, .shown, walkFocusIn, .{ target, walk });
+    if (node.id != target) {
+        return each(node, .shown, walkFocusIn, .{
+            target,
+            walk,
+        });
+    }
+
     walkFocus(node, walk);
+
     return true;
 }
 
@@ -316,9 +364,12 @@ pub const Typing = struct {
 /// `pub fn caret(leaf, bounds) ?ui.Bounds`: the leaf then says where in its
 /// bounds the text goes, or null to take none.
 pub fn typingArea(node: anytype, target: NodeId, found: *Typing) bool {
-    if (node.id != target and !each(node, .shown, typingArea, .{ target, found })) {
-        return false;
-    }
+    const reached = node.id == target or each(node, .shown, typingArea, .{
+        target,
+        found,
+    });
+    if (!reached) return false;
+
     if (comptime handles(@TypeOf(node.widget), .input)) {
         if (found.target == null) {
             found.target = node.id;
@@ -326,14 +377,17 @@ pub fn typingArea(node: anytype, target: NodeId, found: *Typing) bool {
             _ = each(node, .shown, caretIn, .{&found.area});
         }
     }
+
     return true;
 }
 
 fn caretIn(node: anytype, area: *?types.Bounds) bool {
     if (comptime has(@TypeOf(node.widget), "caret")) {
         area.* = node.widget.caret(boundsOf(node));
+
         return true;
     }
+
     return each(node, .shown, caretIn, .{area});
 }
 
@@ -361,9 +415,11 @@ fn activates(offer: Offer, state: *const State) bool {
 
 fn localTo(node: anytype, event: anytype) @TypeOf(event) {
     const origin = offsetOf(node);
+
     var local = event;
     local.x -= origin.x;
     local.y -= origin.y;
+
     return local;
 }
 
@@ -375,39 +431,55 @@ fn handle(
 ) bool {
     const Widget = @TypeOf(node.widget);
     if (comptime !@hasDecl(Widget, "handler_kind")) return false;
-    const f = Widget.handler;
+
+    const func = Widget.handler;
+
     switch (comptime Widget.handler_kind) {
         .tap => {
             if (!activates(offer, state)) return false;
-            _ = invoke(f, owners, state, {});
+
+            _ = invoke(func, owners, state, {});
         },
         .input => {
             if (offer != .text) return false;
-            invoke(f, owners, state, offer.text);
+
+            invoke(func, owners, state, offer.text);
         },
-        .key => if (offer != .key or !invoke(f, owners, state, offer.key)) return false,
-        .wheel => if (offer != .wheel or !invoke(f, owners, state, offer.wheel)) return false,
+        .key => {
+            if (offer != .key) return false;
+            if (!invoke(func, owners, state, offer.key)) return false;
+        },
+        .wheel => {
+            if (offer != .wheel) return false;
+            if (!invoke(func, owners, state, offer.wheel)) return false;
+        },
         .pointer => {
             if (offer != .pointer) return false;
+
             const local = localTo(node, offer.pointer);
-            if (!invoke(f, owners, state, local)) return false;
+            if (!invoke(func, owners, state, local)) return false;
         },
         .drop => {
             if (offer != .drop) return false;
+
             const local = localTo(node, offer.drop);
-            if (!invoke(f, owners, state, local)) return false;
+            if (!invoke(func, owners, state, local)) return false;
         },
         .hover => return false,
         .shortcut => {
             if (offer != .shortcut) return false;
+
             const bound: ?Chord = invoke(Widget.chord, owners, state, {});
             const chord = bound orelse return false;
             if (!chord.matches(offer.shortcut)) return false;
             if (chord.plain() and state.typing != null) return false;
-            _ = invoke(f, owners, state, offer.shortcut);
+
+            _ = invoke(func, owners, state, offer.shortcut);
         },
     }
-    markTargets(f, owners);
+
+    markTargets(func, owners);
+
     return true;
 }
 
@@ -422,16 +494,24 @@ pub fn bubble(
     by: *?NodeId,
 ) bool {
     const inner = call.ownersIn(node, owners);
-    if (node.id != target and !each(node, .shown, bubble, .{ target, offer, inner, state, by })) {
-        return false;
-    }
+    const reached = node.id == target or each(node, .shown, bubble, .{
+        target,
+        offer,
+        inner,
+        state,
+        by,
+    });
+    if (!reached) return false;
+
     if (by.* == null and handle(node, offer, owners, state)) by.* = node.id;
+
     return true;
 }
 
-/// Whether a node of type `N`, or one inside it, has a `shortcut` modifier.
-pub fn binds(comptime N: type) bool {
-    return node_zig.holds(N, isShortcut);
+/// Whether a node of type `NodeType`, or one inside it, has a `shortcut`
+/// modifier.
+pub fn binds(comptime NodeType: type) bool {
+    return node_zig.holds(NodeType, isShortcut);
 }
 
 fn isShortcut(comptime Widget: type) bool {
@@ -449,8 +529,12 @@ pub fn shortcut(
     by: *?NodeId,
 ) void {
     if (comptime !binds(@TypeOf(node.*))) return;
+
     const offer: Offer = .{ .shortcut = press };
-    if (state.focus.len != 0) _ = bubble(node, state.focus[0], offer, owners, state, by);
+
+    if (state.focus.len != 0)
+        _ = bubble(node, state.focus[0], offer, owners, state, by);
+
     if (by.* == null) _ = sweep(node, offer, owners, state, by);
 }
 
@@ -462,16 +546,26 @@ fn sweep(
     by: *?NodeId,
 ) bool {
     if (comptime !binds(@TypeOf(node.*))) return false;
+
     const inner = call.ownersIn(node, owners);
-    if (each(node, .front, sweep, .{ offer, inner, state, by })) return true;
+    const swept = each(node, .front, sweep, .{
+        offer,
+        inner,
+        state,
+        by,
+    });
+    if (swept) return true;
     if (!handle(node, offer, owners, state)) return false;
+
     by.* = node.id;
+
     return true;
 }
 
-/// Whether a node of type `N`, or one inside it, has a `hover` modifier.
-pub fn watches(comptime N: type) bool {
-    return node_zig.holds(N, isHover);
+/// Whether a node of type `NodeType`, or one inside it, has a `hover`
+/// modifier.
+pub fn watches(comptime NodeType: type) bool {
+    return node_zig.holds(NodeType, isHover);
 }
 
 fn isHover(comptime Widget: type) bool {
@@ -498,19 +592,29 @@ pub fn watch(
     told: *bool,
 ) void {
     if (comptime !watches(@TypeOf(node.*))) return;
+
     const Widget = @TypeOf(node.widget);
     const inner = call.ownersIn(node, owners);
-    _ = each(node, .all, watch, .{ seen, inner, state, told });
+
+    _ = each(node, .all, watch, .{
+        seen,
+        inner,
+        state,
+        told,
+    });
+
     if (comptime !handles(Widget, .hover)) return;
 
     const was = contains(seen.was, node.id);
     const is = contains(seen.is, node.id);
     if (was == is and !(is and seen.moved)) return;
+
     const hover = localTo(node, Hover{
         .phase = if (!was) .enter else if (!is) .leave else .move,
         .x = seen.at.x,
         .y = seen.at.y,
     });
+
     _ = invoke(Widget.handler, owners, state, hover);
     markTargets(Widget.handler, owners);
     told.* = true;
@@ -518,12 +622,15 @@ pub fn watch(
 
 // What a function that is called later is handed: the type of the parameter
 // that the owners do not fill in, or void without one.
-fn Handed(comptime f: anytype, comptime Owners: type) type {
+fn Handed(comptime func: anytype, comptime Owners: type) type {
     var handed: type = void;
-    for (@typeInfo(@TypeOf(f)).@"fn".param_types) |param_type| {
-        const P = param_type orelse @compileError("parameters must have concrete types");
-        if (!call.fills(Owners, P)) handed = P;
+
+    for (@typeInfo(@TypeOf(func)).@"fn".param_types) |param_type| {
+        const Param = param_type orelse
+            @compileError("parameters must have concrete types");
+        if (!call.fills(Owners, Param)) handed = Param;
     }
+
     return handed;
 }
 
@@ -543,29 +650,46 @@ pub fn deliver(
     const Widget = @TypeOf(node.widget);
     const component = comptime node_zig.isComponent(Widget);
     const inner = call.ownersIn(node, owners);
-    if (node.id != target and !each(node, .all, deliver, .{ target, task, inner, state, handled })) {
-        return false;
-    }
+    const reached = node.id == target or each(node, .all, deliver, .{
+        target,
+        task,
+        inner,
+        state,
+        handled,
+    });
+    if (!reached) return false;
+
     if (comptime !component or !@hasDecl(Widget, "later")) return true;
 
-    inline for (Widget.later) |f| {
-        const Result = comptime Handed(f, @TypeOf(inner));
-        if (comptime node_zig.ReturnOf(f) != void) {
-            @compileError("a function in the `later` of " ++ @typeName(Widget) ++ " returns a value");
+    inline for (Widget.later) |func| {
+        const Result = comptime Handed(func, @TypeOf(inner));
+
+        if (comptime node_zig.ReturnOf(func) != void) {
+            @compileError(
+                "a function in the `later` of " ++ @typeName(Widget) ++
+                    " returns a value",
+            );
         }
-        if (!handled.* and task.key == task_zig.keyOf(f)) {
+
+        if (!handled.* and task.key == task_zig.keyOf(func)) {
             if (task.kind != task_zig.keyOf(Result)) {
-                @panic("a function in `later` takes another type than it is handed");
+                @panic(
+                    "a function in `later` takes another type " ++
+                        "than it is handed",
+                );
             }
+
             if (Result == void) {
-                invoke(f, inner, state, {});
+                invoke(func, inner, state, {});
             } else {
                 const result: *const Result = @ptrCast(@alignCast(task.result));
-                invoke(f, inner, state, result.*);
+                invoke(func, inner, state, result.*);
             }
-            markTargets(f, inner);
+
+            markTargets(func, inner);
             handled.* = true;
         }
     }
+
     return true;
 }

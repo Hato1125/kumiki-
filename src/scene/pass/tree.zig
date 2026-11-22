@@ -1,9 +1,10 @@
 const std = @import("std");
 
+const same = @import("anime").same;
+
 const call = @import("../base/call.zig");
 const invoke = call.invoke;
 const node_zig = @import("../base/node.zig");
-const pass = @import("layout.zig");
 const Provided = node_zig.Provided;
 const Resolved = node_zig.Resolved;
 const State = node_zig.State;
@@ -14,25 +15,23 @@ const isContainer = node_zig.isContainer;
 const isList = node_zig.isList;
 const isShow = node_zig.isShow;
 const provides = node_zig.provides;
-const same = @import("anime").same;
+const pass = @import("layout.zig");
 
 fn isAnimated(comptime View: type) bool {
     return isContainer(View) and @hasField(@FieldType(View, "config"), "tween");
 }
 
-// What the component `View` provides. `inner` are its owners and its own
-// node. The value cannot be made of the one it replaces.
 fn provided(comptime View: type, inner: anytype, state: *State) Provided(View) {
-    comptime for (@typeInfo(@TypeOf(View.provide)).@"fn".param_types) |param_type| {
-        if (call.Pointee(param_type.?) == Provided(View)) {
-            @compileError("the provide of " ++ @typeName(View) ++
-                " receives the type it provides");
-        }
+    const params = @typeInfo(@TypeOf(View.provide)).@"fn".param_types;
+
+    comptime for (params) |param_type| {
+        if (call.Pointee(param_type.?) == Provided(View))
+            @compileError("the provide of " ++ @typeName(View) ++ " receives the type it provides");
     };
+
     return invoke(View.provide, inner, state, {});
 }
 
-// What a view stands for: the result of its function for a `show`.
 fn resolve(
     value: anytype,
     state: *State,
@@ -40,6 +39,7 @@ fn resolve(
 ) Resolved(@TypeOf(value)) {
     const View = @TypeOf(value);
     if (comptime !isShow(View)) return value;
+
     return invoke(@FieldType(View, "config").func, owners, state, {});
 }
 
@@ -69,17 +69,19 @@ pub fn mount(
     node.id = state.next_id;
     if (comptime @TypeOf(node.offset) != void) node.offset = .{};
     node.size = .{};
+
     if (comptime isComponent(View)) {
         node.widget = value;
         node.dirty = false;
         node.arena = .init;
         node.constraint = .{};
         node.read = null;
+
         const inner = owners ++ .{node};
-        if (comptime @hasDecl(View, "mount")) {
+        if (comptime @hasDecl(View, "mount"))
             invoke(View.mount, inner, state, {});
-        }
         if (comptime provides(View)) node.given = provided(View, inner, state);
+
         mount(&node.children[0], View.view, state, inner);
     } else if (comptime isList(View)) {
         node.widget = value.config;
@@ -87,32 +89,42 @@ pub fn mount(
         syncList(node, state, owners);
     } else if (comptime isAnimated(View)) {
         const target = resolve(value.children[0], state, owners);
-        node.widget = .{ .spec = value.config.spec, .tween = .init(target) };
+        node.widget = .{
+            .spec = value.config.spec,
+            .tween = .init(target),
+        };
+
         mount(&node.children[0], target, state, owners);
     } else {
+        const Config = @TypeOf(value.config);
         node.widget = value.config;
-        if (comptime node_zig.handles(@TypeOf(value.config), .input)) {
-            state.inputs += 1;
-        }
-        if (comptime @hasDecl(@TypeOf(value.config), "cond")) {
-            node.widget.active = invoke(@TypeOf(value.config).cond, owners, state, {});
-        }
+
+        if (comptime node_zig.handles(Config, .input)) state.inputs += 1;
+        if (comptime @hasDecl(Config, "cond"))
+            node.widget.active = invoke(Config.cond, owners, state, {});
+
         if (comptime @TypeOf(value.children) == void) return;
-        inline for (0..value.children.len) |i| {
+
+        inline for (0..value.children.len) |i|
             mount(&node.children[i], value.children[i], state, owners);
-        }
     }
 }
 
 pub fn destroy(node: anytype, state: *State, owners: anytype) void {
     const Widget = @TypeOf(node.widget);
     const inner = call.ownersIn(node, owners);
-    _ = each(node, .all, destroy, .{ state, inner });
+
+    _ = each(node, .all, destroy, .{
+        state,
+        inner,
+    });
+
     if (comptime node_zig.handles(Widget, .input)) state.inputs -= 1;
+
     if (comptime isComponent(Widget)) {
-        if (comptime @hasDecl(Widget, "unmount")) {
+        if (comptime @hasDecl(Widget, "unmount"))
             invoke(Widget.unmount, inner, state, {});
-        }
+
         node.arena.promote(state.gpa).deinit();
     } else if (comptime isList(Widget)) {
         node.children.deinit(state.gpa);
@@ -123,7 +135,10 @@ pub fn destroy(node: anytype, state: *State, owners: anytype) void {
 // Where a value given to `apply` comes from. A value written in a `view` is
 // the same on every build, so the node already holds it, while a function
 // may return a different one.
-const Origin = enum { view, function };
+const Origin = enum {
+    view,
+    function,
+};
 
 // Brings `node` up to date with `value`. A component written in a view is
 // left alone, because storing it again would erase the state in its fields.
@@ -148,50 +163,65 @@ fn apply(
         );
     }
 
-    if (comptime node_zig.isBare(View)) {
-        return apply(
-            node,
-            node_zig.leaf(value),
-            state,
-            owners,
-            origin,
-        );
-    }
+    if (comptime node_zig.isBare(View))
+        return apply(node, node_zig.leaf(value), state, owners, origin);
 
     if (comptime isComponent(View)) {
         if (origin == .view) return;
+
         if (!std.meta.eql(node.widget, value)) node.dirty = true;
         node.widget = value;
     } else if (comptime isList(View)) {
         if (origin == .function) node.widget.adopt(value.config);
+
         syncList(node, state, owners);
     } else if (comptime isAnimated(View)) {
         const Child = @TypeOf(value.children[0]);
         const spec = value.config.spec;
         const tween = &node.widget.tween;
         node.widget.spec = spec;
-        tween.retarget(spec, resolve(value.children[0], state, owners), state.now);
+
+        tween.retarget(
+            spec,
+            resolve(value.children[0], state, owners),
+            state.now,
+        );
+
         const shown: Origin = if (comptime isShow(Child)) .function else origin;
-        apply(&node.children[0], tween.at(spec, state.now), state, owners, shown);
+        const current = tween.at(spec, state.now);
+        apply(&node.children[0], current, state, owners, shown);
+
         if (tween.running) state.animating = true;
     } else {
-        if (comptime @hasDecl(@TypeOf(value.config), "cond")) {
-            const active = invoke(@TypeOf(value.config).cond, owners, state, {});
+        const Config = @TypeOf(value.config);
+
+        if (comptime @hasDecl(Config, "cond")) {
+            const active = invoke(Config.cond, owners, state, {});
             if (active != node.widget.active) state.stale = true;
+
             if (origin == .function) {
-                if (comptime @hasDecl(@TypeOf(value.config), "adopt")) {
+                if (comptime @hasDecl(Config, "adopt")) {
                     node.widget.adopt(value.config);
                 } else {
                     node.widget = value.config;
                 }
             }
+
             node.widget.active = active;
         } else if (origin == .function) {
             node.widget = value.config;
         }
+
         if (comptime @TypeOf(value.children) == void) return;
+
         inline for (0..value.children.len) |i| {
-            apply(&node.children[i], value.children[i], state, owners, origin);
+            apply(
+                &node.children[i],
+                value.children[i],
+                state,
+                owners,
+                origin,
+            );
         }
     }
 }
@@ -202,8 +232,10 @@ fn apply(
 /// compared with the old ones.
 pub fn rebuild(node: anytype, state: *State, owners: anytype) void {
     const Widget = @TypeOf(node.widget);
+
     if (comptime isComponent(Widget)) {
         const inner = owners ++ .{node};
+
         if (node.dirty) {
             @branchHint(.unlikely);
             const last = node.arena.promote(state.gpa);
@@ -216,20 +248,26 @@ pub fn rebuild(node: anytype, state: *State, owners: anytype) void {
             // built again too.
             if (comptime provides(Widget)) {
                 const next = provided(Widget, inner, state);
-                if (!same(Provided(Widget), next, node.given)) {
+                if (!same(Provided(Widget), next, node.given))
                     call.markAll(&node.children[0]);
-                }
+
                 node.given = next;
             }
+
             apply(&node.children[0], Widget.view, state, inner, .view);
             rebuild(&node.children[0], state, inner);
+
             return last.deinit();
         }
+
         return rebuild(&node.children[0], state, inner);
     }
+
     if (comptime @TypeOf(node.children) == void) return;
+
     if (comptime @hasField(Widget, "tween")) {
         const tween = &node.widget.tween;
+
         if (tween.running) {
             apply(
                 &node.children[0],
@@ -241,18 +279,24 @@ pub fn rebuild(node: anytype, state: *State, owners: anytype) void {
 
             tween.finish(node.widget.spec, state.now);
             if (tween.running) state.animating = true;
+
             // An animation that leaves the size of the view as it was, such
             // as one of a color, moves nothing around it, so only the view
             // is laid out again.
             const size = node.size;
-            if (std.meta.eql(pass.measure(node, node.widget.constraint), size)) {
+            const measured = pass.measure(node, node.widget.constraint);
+            if (std.meta.eql(measured, size)) {
                 pass.layout(node, node_zig.offsetOf(node));
             } else {
                 state.built = true;
             }
         }
     }
-    _ = each(node, .all, rebuild, .{ state, owners });
+
+    _ = each(node, .all, rebuild, .{
+        state,
+        owners,
+    });
 }
 
 /// Marks the components whose functions received a constraint other than
@@ -266,6 +310,7 @@ pub fn markResized(node: anytype, marked: *bool) void {
             }
         }
     }
+
     _ = each(node, .all, markResized, .{marked});
 }
 
@@ -278,28 +323,37 @@ pub fn markChanged(
     const was = contains(before, node.id);
     const is = contains(after, node.id);
     if (!was and !is) return;
+
     if (comptime isComponent(@TypeOf(node.widget))) {
         if (was != is) node.dirty = true;
     }
-    _ = each(node, .all, markChanged, .{ before, after });
+
+    _ = each(node, .all, markChanged, .{
+        before,
+        after,
+    });
 }
 
 fn syncList(node: anytype, state: *State, owners: anytype) void {
     const List = @TypeOf(node.widget);
     const elements = invoke(List.source, owners, state, {});
     state.stale = true;
+
     if (comptime List.keyed) return syncKeyed(node, elements, state, owners);
 
     const rows = &node.children;
     const kept = @min(elements.len, rows.items.len);
-    for (rows.items[0..kept], 0..) |*row, i| {
+
+    for (rows.items[0..kept], 0..) |*row, i|
         apply(row, List.item(elements, i), state, owners, .function);
-    }
+
     for (rows.items[kept..]) |*row| destroy(row, state, owners);
     rows.shrinkRetainingCapacity(kept);
     rows.ensureTotalCapacity(state.gpa, elements.len) catch @panic("out of memory");
+
     for (kept..elements.len) |i| {
-        mount(rows.addOneAssumeCapacity(), List.item(elements, i), state, owners);
+        const row = rows.addOneAssumeCapacity();
+        mount(row, List.item(elements, i), state, owners);
     }
 }
 
@@ -317,14 +371,18 @@ fn syncKeyed(
     var old_keys = node.widget.keys;
     defer old_rows.deinit(state.gpa);
     defer old_keys.deinit(state.gpa);
-    var taken = std.DynamicBitSetUnmanaged.initEmpty(state.gpa, old_rows.items.len) catch
-        @panic("out of memory");
+
+    var taken = std.DynamicBitSetUnmanaged.initEmpty(
+        state.gpa,
+        old_rows.items.len,
+    ) catch @panic("out of memory");
     defer taken.deinit(state.gpa);
 
     const rows = &node.children;
     const keys = &node.widget.keys;
     rows.* = .empty;
     keys.* = .empty;
+
     rows.ensureTotalCapacityPrecise(state.gpa, elements.len) catch @panic("out of memory");
     keys.ensureTotalCapacityPrecise(state.gpa, elements.len) catch @panic("out of memory");
 
@@ -333,7 +391,8 @@ fn syncKeyed(
         const row = rows.addOneAssumeCapacity();
         const found = for (0..old_rows.items.len) |n| {
             const j = (next + n) % old_rows.items.len;
-            if (!taken.isSet(j) and List.sameKey(old_keys.items[j], element.id)) break j;
+            if (taken.isSet(j)) continue;
+            if (List.sameKey(old_keys.items[j], element.id)) break j;
         } else null;
 
         if (found) |j| {
@@ -347,8 +406,10 @@ fn syncKeyed(
             mount(row, List.item(elements, i), state, owners);
         }
     }
+
     for (old_rows.items, old_keys.items, 0..) |*row, key, j| {
         if (taken.isSet(j)) continue;
+
         destroy(row, state, owners);
         List.freeKey(state.gpa, key);
     }

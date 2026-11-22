@@ -1,7 +1,8 @@
 const std = @import("std");
-const gfx = @import("gfx");
 
+const gfx = @import("gfx");
 const types = @import("types");
+
 const node_zig = @import("../base/node.zig");
 const has = node_zig.has;
 
@@ -20,58 +21,76 @@ pub const Painter = struct {
     target: *Target,
 
     /// The bounds in the form the canvas takes them, for a clip.
-    pub fn box(p: Painter) gfx.Bounds {
+    pub fn box(self: Painter) gfx.Bounds {
         return .{
-            .x = p.bounds.x,
-            .y = p.bounds.y,
-            .width = p.bounds.w,
-            .height = p.bounds.h,
+            .x = self.bounds.x,
+            .y = self.bounds.y,
+            .width = self.bounds.w,
+            .height = self.bounds.h,
         };
     }
 
-    fn rect(p: Painter, corners: gfx.Corners) gfx.Rect {
+    fn rect(self: Painter, corners: gfx.Corners) gfx.Rect {
         return .{
-            .x = p.bounds.x,
-            .y = p.bounds.y,
-            .width = p.bounds.w,
-            .height = p.bounds.h,
+            .x = self.bounds.x,
+            .y = self.bounds.y,
+            .width = self.bounds.w,
+            .height = self.bounds.h,
             .corners = corners,
         };
     }
 
-    pub fn fill(p: Painter, corners: gfx.Corners, color: gfx.Color) void {
+    pub fn fill(
+        self: Painter,
+        corners: gfx.Corners,
+        color: gfx.Color,
+    ) void {
         if (color.a == 0) return;
-        var shape = p.rect(corners);
+
+        var shape = self.rect(corners);
         shape.color = color;
-        p.canvas.rect(shape);
+        self.canvas.rect(shape);
     }
 
     /// Fills the bounds with a material of the canvas, from what is drawn
     /// under them so far.
-    pub fn material(p: Painter, corners: gfx.Corners, with: gfx.MaterialFill) void {
-        var shape = p.rect(corners);
+    pub fn material(
+        self: Painter,
+        corners: gfx.Corners,
+        with: gfx.MaterialFill,
+    ) void {
+        var shape = self.rect(corners);
         shape.material = with;
-        p.canvas.rect(shape);
+        self.canvas.rect(shape);
     }
 
     /// The stroke is kept inside the bounds.
-    pub fn stroke(p: Painter, corners: gfx.Corners, width: f32, color: gfx.Color) void {
+    pub fn stroke(
+        self: Painter,
+        corners: gfx.Corners,
+        width: f32,
+        color: gfx.Color,
+    ) void {
         if (color.a == 0 or width <= 0) return;
-        var shape = p.rect(corners);
+
+        var shape = self.rect(corners);
         shape.color = .transparent;
-        shape.border = .{ .width = width, .color = color };
-        p.canvas.rect(shape);
+        shape.border = .{
+            .width = width,
+            .color = color,
+        };
+        self.canvas.rect(shape);
     }
 
     /// The time of this frame in seconds, on the clock of Context.now.
-    pub fn now(p: Painter) f64 {
-        return p.target.now;
+    pub fn now(self: Painter) f64 {
+        return self.target.now;
     }
 
     /// Asks for another frame at `time`, for a drawing that changes with the
     /// time, such as a blinking caret, without anything being built again.
-    pub fn again(p: Painter, time: f64) void {
-        p.target.again = @min(p.target.again, time);
+    pub fn again(self: Painter, time: f64) void {
+        self.target.again = @min(self.target.again, time);
     }
 };
 
@@ -80,19 +99,20 @@ pub const Painter = struct {
 /// after everything else.
 pub fn paint(node: anytype, target: *Target) void {
     const Widget = @TypeOf(node.widget);
-    const p: Painter = .{
+    const painter: Painter = .{
         .canvas = target.canvas,
         .bounds = node_zig.boundsOf(node),
         .target = target,
     };
 
-    if (comptime has(Widget, "paint")) node.widget.paint(p);
-    if (comptime has(Widget, "beginPaint")) node.widget.beginPaint(p);
+    if (comptime has(Widget, "paint")) node.widget.paint(painter);
+    if (comptime has(Widget, "beginPaint")) node.widget.beginPaint(painter);
 
     if (comptime node_zig.isPopup(Widget)) {
         paint(&node.children[0], target);
     } else {
         _ = node_zig.each(node, .shown, paint, .{target});
     }
-    if (comptime has(Widget, "endPaint")) node.widget.endPaint(p);
+
+    if (comptime has(Widget, "endPaint")) node.widget.endPaint(painter);
 }
